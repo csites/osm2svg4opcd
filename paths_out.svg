@@ -1,0 +1,2 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <path id="test-line" style="fill:none;stroke:black;stroke-width:5" d="M 50,50 150,150 50,250 150,350" /><path id="test-closed" style="fill:none;stroke:blue;stroke-width:5" d="M 300,50 450,100 450,200 300,250 150,200 150,100" /></svg>

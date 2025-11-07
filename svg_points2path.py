@@ -1,4 +1,4 @@
-#!/home/chuck/venv/bin/python3
+#!/usr/bin/env python3
 """
 svg_points2path.py takes out.svg and locates all polylines and converts them to linesegments and points.
 the output file is called paths_out.svg.  The next step is that we apply smoothing technique to the line segments
@@ -36,6 +36,12 @@ def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=1.0):
     # D = (L_prev / L_next) * V_next - V_prev
     D = (L_prev / L_next) * V_next - V_prev
     
+    # Handle D being zero (Collinear, equi-spaced case) 
+    if abs(D) == 0:
+        # If D is the zero vector, P_prev, P_i, and P_next are perfectly collinear 
+        # and proportional (often L_prev == L_next). No smoothing should happen.
+        return P_i, P_i 
+    
     # 3. Calculate Unit Tangent Vector T
     # Tangent T is 90 degrees to D. In complex numbers, multiply by +/- 1j
     # We use -1j for one direction (as per Inkscape's internal logic for one handle)
@@ -64,7 +70,7 @@ def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=1.0):
 
     return C1, C2
 
-SMOOTH_TIGHTNESS_FACTOR = 0.5
+SMOOTH_TIGHTNESS_FACTOR = 0.375
 def smooth_path_segments(original_path_segments, is_closed):
     """
     Applies an Inkscape like "Make Segments Curves" and "Auto-Smooth" logic 

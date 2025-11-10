@@ -10,6 +10,7 @@ import sys
 import xml.etree.ElementTree as ET
 from svgpathtools import parse_path, Path, Line, Arc, CubicBezier
 import numpy as np
+import pyclipper
 
 # --- Global Configuration ---
 BUNKER_TAG = "golf.bunker"
@@ -18,8 +19,9 @@ BUNKER_TAG = "golf.bunker"
 
 INPUT_FILENAME="smoothed_out.svg"
 OUTPUT_FILENAME="final_smoothed_out.svg"
-OUTSET_DISTANCE_UNSCALED=1.5
 
+CLIPPER_SCALE_FACTOR = 1000.0
+BOUNDARY_OUTSET = 0.85  # 1.5 clears the 'Clender' but appears excessive
 
 def transform_point(point, center_x, center_y, scale_factor):
     """
@@ -34,50 +36,74 @@ def transform_point(point, center_x, center_y, scale_factor):
     new_y = scaled_y + center_y
     return new_x + 1j * new_y
 
-def simplify_and_outset_path(d_string, offset_distance):
+
+def simplify_and_offset_path(d_string, offset_value):
     """
-    Simplifies the path geometry using successive shortcuts and applies 
-    an approximate outset by scaling the simplified control points, 
-    maintaining Bezier curves.
+    Performs a TRUE uniform geometric offset (outset/inset) using pyclipper.
+    This replaces the unreliable proportional scaling method.
     """
     try:
-        path = parse_path(d_string)
+        path_obj = parse_path(d_string)
     except Exception as e:
-        print(f"Warning: Failed to parse SVG path for smoothing/outset: {e}")
+        print(f"Warning: Failed to parse SVG path: {e}")
         return d_string
 
-    # 1. Simplify the path using successive shortcuts (Strong Smoothing)
-    # The tolerance (0.5) and max_loops (30) enforce strong geometric simplification.
-    # simplified_path = path.approximate_successive_shortcuts(0.5, 30) 
+    # 1. NEW ROBUST SAMPLING: Convert SVG path to a high-precision polygon
+    #    Iterate over the entire path object using its 'point(t)' method.
+    num_samples = 100 # Number of points to approximate the Bezier curve
+    t_values = np.linspace(0, 1, num_samples, endpoint=True)
+    sampled_points = []
 
-    # 2. Get the path's bounding box center (for scaling reference)
-    min_x, max_x, min_y, max_y = path.bbox()
-    center_x = (min_x + max_x) / 2
-    center_y = (min_y + max_y) / 2
+    for t in t_values:
+        point = path_obj.point(t) # Get the complex number (x + iy)
+        
+        # Convert complex numbers to (x, y) tuples and scale for pyclipper
+        scaled_x = int(point.real * CLIPPER_SCALE_FACTOR)
+        scaled_y = int(point.imag * CLIPPER_SCALE_FACTOR)
+        
+        # Avoid adding duplicate points if the Bezier segments meet perfectly
+        if not sampled_points or (scaled_x, scaled_y) != sampled_points[-1]:
+            sampled_points.append((scaled_x, scaled_y))
+
+
+    # 2. Configure pyclipper and apply the uniform offset
+    #    We must use a list of lists for pyclipper to define the polygon input
+    pyclipper_input = [sampled_points]
+
+    pco = pyclipper.PyclipperOffset()
+    # Offset is scaled to integer space
+    scaled_offset = int(offset_value * CLIPPER_SCALE_FACTOR)
     
-    # Calculate scale factor for the approximate 0.5 unit outset.
-    # An empirical factor (1.10) is a good starting point for a small, uniform increase.
-    # NOTE: This factor may require tuning based on the average size of your bunkers.
-    scale_factor = 1.10 
+    # Add the path, marking it as a closed loop
+    pco.AddPath(pyclipper_input[0], pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
+    
+    # Execute the offset
+    offset_polygons = pco.Execute(scaled_offset)
 
-    # 3. Apply the scaling transformation
-    # We apply the transformation to every point of every element in the simplified path.
-    for element in path:
-        # Check if the element has start and end points (covers Line, Arc, CubicBezier, etc.)
-        if hasattr(element, 'start') and hasattr(element, 'end'):
+    # 3. Convert the resulting polygons back to an SVG path string (M...L...Z)
+    new_d_string = ""
+    # We assume the largest resulting polygon is the correct offset shape
+    if offset_polygons:
+        # Find the largest polygon by area/length
+        largest_poly = max(offset_polygons, key=len)
+        
+        # Convert the first polygon back to a basic SVG path string
+        start_x = largest_poly[0][0] / CLIPPER_SCALE_FACTOR
+        start_y = largest_poly[0][1] / CLIPPER_SCALE_FACTOR
+        new_d_string += f"M {start_x:.3f},{start_y:.3f} "
+        
+        # Follow with Line commands for the rest of the points
+        for x, y in largest_poly[1:]:
+            unscaled_x = x / CLIPPER_SCALE_FACTOR
+            unscaled_y = y / CLIPPER_SCALE_FACTOR
+            new_d_string += f"L {unscaled_x:.3f},{unscaled_y:.3f} "
+            
+        new_d_string += "Z" # Close the path
+    else:
+        # If offsetting failed to produce a result, return the original
+        return d_string
 
-            # Transform start and end points
-            element.start = transform_point(element.start, center_x, center_y, scale_factor)
-            element.end = transform_point(element.end, center_x, center_y, scale_factor)
-
-            # Transform specific control points if they exist (e.g., CubicBezier)
-            if hasattr(element, 'control1'):
-                element.control1 = transform_point(element.control1, center_x, center_y, scale_factor)
-            if hasattr(element, 'control2'):
-                element.control2 = transform_point(element.control2, center_x, center_y, scale_factor)
-
-    # 4. Return the new SVG path string using the Path.d() method
-    return path.d()
+    return new_d_string
 
 
 def fix_bunker_paths(input_svg, output_svg):
@@ -93,7 +119,7 @@ def fix_bunker_paths(input_svg, output_svg):
         # Define SVG namespace
         NS = {'svg': 'http://www.w3.org/2000/svg'}
         
-        print(f"Starting analysis of {input_svg} (Outset Distance: {OUTSET_DISTANCE_UNSCALED})...")
+        print(f"Starting analysis of {input_svg} (Outset Distance: {BOUNDARY_OUTSET})...")
         
         fixed_count = 0
 
@@ -108,7 +134,7 @@ def fix_bunker_paths(input_svg, output_svg):
                 if d_attribute:
                     print(f" - Found and processing bunker: {path_id}")
                     # 4. Apply Geometric Outset
-                    new_d = simplify_and_outset_path(d_attribute, OUTSET_DISTANCE_UNSCALED)                    
+                    new_d = simplify_and_offset_path(d_attribute, BOUNDARY_OUTSET)                    
                     # 5. Update the SVG element
                     path_elem.set('d', new_d)
                     # Optional: Mark the path to show it was processed

@@ -11,6 +11,9 @@ Note this is a work in progress, and I'm in the process of developing functions 
 License: My code (osm2svg_v4.py, svg_points2path.py, and styles.json) is released under the MIT license.
 The 'map.osm' is covered under the ODbL license.  
 
+Now it's a three step processes 1) Assuming you have  map.osm from OpenStreetMap export function run 'python3 osm2svg_v4.py" to create out.svg.
+2) run "python3 svg_points2path.py" to create path_out.svg and smoothed_out.svg from out.svg.  The smoothed_out.svg will pass Clender's color checks but fails on bunker inset.
+3) run "fix_bunker_inset.py" to create final_smoothed_out.svg from smoothed_out.svg.   (Work in progress, still broken)
 
 KNOWN BUGS and things to work on:
  

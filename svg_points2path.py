@@ -8,8 +8,9 @@ the apply auto-smooth.  The output file is called smoothed_out.svg.
 import xml.etree.ElementTree as ET
 from svgpathtools import parse_path, Path, Line, CubicBezier
 import numpy as np
+SMOOTH_TIGHTNESS_FACTOR = 0.375
 
-def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=1.0):
+def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=SMOOTH_TIGHTNESS_FACTOR):
     """
     Calculates the control points C1 (back handle) and C2 (front handle) 
     for an Auto-Smooth node P_i, based on Inkscape's algorithm.
@@ -59,19 +60,27 @@ def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=1.0):
         T_unit = (D / abs(D)) * (-1j)
     
     # 4. Calculate Control Points (C1 and C2)
-    # Handle lengths are 1/3 of the adjacent segment's length
+    #   Constrain handle length by the minimum adjacent segment length (for long straight roads, and paths)
+    # This prevents long segments from making the handle too long for tight corners.
+    L_min = min(L_prev, L_next)
     
+    # Calculate a single, constrained handle length
+    handle_len = (L_min / 3.0) * tightness_factor
+    
+    # Both handles use the same constrained length
+    handle_len_prev = handle_len 
+    handle_len_next = handle_len
+
     # Scale the handle length by the tightness_factor (e.g., 0.5 for half length)
-    handle_len_prev = (L_prev / 3) * tightness_factor
-    handle_len_next = (L_next / 3) * tightness_factor
+    # handle_len_prev = (L_prev / 3) * tightness_factor
+    # handle_len_next = (L_next / 3) * tightness_factor
     
     C1 = P_i - T_unit * handle_len_prev # Back handle (control point for the previous segment)
     C2 = P_i + T_unit * handle_len_next # Front handle (control point for the current segment)
 
     return C1, C2
 
-SMOOTH_TIGHTNESS_FACTOR = 0.375
-def smooth_path_segments(original_path_segments, is_closed):
+def smooth_path_segments(original_path_segments, is_closed, tightness_factor=SMOOTH_TIGHTNESS_FACTOR):
     """
     Applies an Inkscape like "Make Segments Curves" and "Auto-Smooth" logic 
     to a sequence of path segments.
@@ -128,21 +137,22 @@ def smooth_path_segments(original_path_segments, is_closed):
         # --- C2_i: Outgoing handle from P_i (Start Control Point) ---
         if is_closed or j > 0:
             # Pass the tightness factor here:
-            _, C2_i = get_auto_smooth_controls(P_prev, P_i, P_next, SMOOTH_TIGHTNESS_FACTOR) 
+            _, C2_i = get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor) 
         else:
             # Handle for P0 (no change to the logic introduced in the previous fix)
-            C1_next_of_P1, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, SMOOTH_TIGHTNESS_FACTOR)
-            C2_i = C1_next_of_P1
-
+            C1_next_of_P1, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, tightness_factor)
+#            C2_i = C1_next_of_P1
+            C2_i = P_i + (P_next - P_i) * (tightness_factor / 3.0) 
         # --- C1_next: Incoming handle to P_next (End Control Point) ---
         if is_closed or j < num_nodes - 2:
             # Pass the tightness factor here:
-            C1_next, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, SMOOTH_TIGHTNESS_FACTOR)
+            C1_next, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, tightness_factor)
         else:
             # Handle for P_N (no change to the logic introduced in the previous fix)
-            _, C2_i_of_P_N_minus_1 = get_auto_smooth_controls(P_prev, P_i, P_next, SMOOTH_TIGHTNESS_FACTOR)
-            C1_next = P_next - (C2_i_of_P_N_minus_1 - P_i)
-
+#            _, C2_i_of_P_N_minus_1 = get_auto_smooth_controls(P_prev, P_i, P_next, SMOOTH_TIGHTNESS_FACTOR)
+#            C1_next = P_next - (C2_i_of_P_N_minus_1 - P_i)
+            C1_next = P_next - (P_next - P_i) * (tightness_factor / 3.0)
+            
         # Create the new cubic segment
         new_seg = CubicBezier(P_i, C2_i, C1_next, P_next)
         final_segments.append(new_seg)

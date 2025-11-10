@@ -123,30 +123,37 @@ def convert_way_to_svg_path(way_id):
 
 
 def process_multipolygon_relation(relation, styles):
-    # 1. Check if the relation has a drawable style (unchanged lookup)
+    # 1. Check if the relation has a drawable style (with feature_tag capture)
     style = None
+    feature_tag = None  # Initialize feature_tag
+
     for tag in relation.findall('tag'):
-        # ... (lookup logic to assign style) ...
+        # Check specific tag value first (e.g., 'leisure.golf_course')
         searchtag = f"{tag.get('k')}.{tag.get('v')}"
         if searchtag in styles:
             style = styles[searchtag]
+            feature_tag = searchtag  # Capture the specific tag
             break
+        # Check generic tag key second (e.g., 'waterway')
         elif tag.get('k') in styles:
             style = styles[tag.get('k')]
+            feature_tag = tag.get('k')  # Capture the generic tag
             break
             
     if style is None:
         return None # Return None if no style is found
 
     # Get Z-order
-    z_order = style['z-order'] # <--- NEW
+    z_order = style['z-order']
 
     # Get clean style string (unchanged)
     svg_style_string = style['svg_style']
     if 'fill-rule' not in svg_style_string:
+        # NOTE: You must check your style dict for 'attrs' and its keys if you use style['svg_style']
+        # The safer approach would be to check the original attributes:
         svg_style_string = f'{svg_style_string} fill-rule="evenodd"'
 
-    # 2. Extract member Ways (outer and inner)
+    # 2. Extract member Ways (outer and inner) (unchanged)
     outer_paths = []
     inner_paths = []
     
@@ -166,15 +173,14 @@ def process_multipolygon_relation(relation, styles):
     # 3. Combine paths and GENERATE the SVG string
     if outer_paths:
         combined_d = ' '.join(outer_paths + inner_paths)
-        
-        # Return the feature dictionary instead of writing to 'out'
-        svg_string = f'<path d="{combined_d}" {svg_style_string} id="rel_{relation.get("id")}"/>\n'
+        relation_id = relation.get("id")
+        svg_string = f'<path d="{combined_d}" {svg_style_string} id="rel_{relation_id}_{feature_tag}"/>\n'
         
         return {
             'z': z_order,
             'svg': svg_string
         }
-    
+        
     return None
 
 def convert_stroke_to_path(points, stroke_width, style_attrs, corner_radius=0, straight_threshold=0.999):
@@ -499,8 +505,7 @@ def main():
                  style_attrs.append(f'{k}="{v}"')
 
             # Example: <polyline points="..." fill="none" stroke="#FCA328" stroke-width="4"/>
-            svg_element = f'<polyline points="{polyline_points}" {" ".join(style_attrs)} id="way_{way_id}"/>\n'
-
+            svg_element = f'<polyline points="{polyline_points}" {" ".join(style_attrs)} id="way_{way_id}_{feature_tag}"/>\n'
 
         # 4. STORE the feature and its z-order
         if svg_element:

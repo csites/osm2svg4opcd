@@ -21,7 +21,7 @@ INPUT_FILENAME="smoothed_out.svg"
 OUTPUT_FILENAME="final_smoothed_out.svg"
 
 CLIPPER_SCALE_FACTOR = 1000.0
-BOUNDARY_OUTSET = 0.85  # 1.5 clears the 'Clender' but appears excessive
+BOUNDARY_OUTSET = 1.00  # 1.5 clears the 'Clender' but appears excessive
 
 def transform_point(point, center_x, center_y, scale_factor):
     """

@@ -535,7 +535,7 @@ def main():
             # 1. Write the SVG header
             out.write('<?xml version="1.0" encoding="UTF-8"?>\n')
             svg_header = (
-                f'<svg xmlns="http://www.w3.org/2000/svg" '
+                f'<svg width="8192" height="8192" viewBox="0 0 8192 8192" xmlns="http://www.w3.org/2000/svg" '
                 f'xmlns:xlink="http://www.w3.org/1999/xlink" '
                 f'width="{outWidth}" height="{outHeight:.4f}" '
                 f'viewBox="0 0 {outWidth} {outHeight:.4f}" version="1.1">\n'

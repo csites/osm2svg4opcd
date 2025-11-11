@@ -21,7 +21,14 @@ INPUT_FILENAME="smoothed_out.svg"
 OUTPUT_FILENAME="final_smoothed_out.svg"
 
 CLIPPER_SCALE_FACTOR = 1000.0
-BOUNDARY_OUTSET = 1.00  # 1.5 clears the 'Clender' but appears excessive
+
+"""
+BOUNDARY_OUTSET, the sandtrap outset scale factor (Trial and Error) 
+SANDTRAP/BUNKER Inset fix.  With bunkers, Clender will mesh them so they will have some wall mesh form when dug out. It does this with a two step inset, the first being a polygon with 1x1 polygon and the second inner inset being a 1x1.5 polygon.  If the sandtraps are either too narrow, have a cusp node, or have a sharp corner the two step inset will fail. This program fattens the sandtraps up and rounds them out by doing an outset so they can be inset by clender.  BOUNDARY_OUTSET is a value that shanges how much of an outset to create (how much to enlarge) the sandtraps.  This value may change from sandtrap to sandtrap, but to perseve the geometry, it should be as small as possible.  It can range from 1.5 (really huge undesirable, to 0.75 very small outset.   I've found 0.875 to be optimal for most all sandtraps.  (NEW This is now Adaptive based on the Bunker geometry). 
+"""
+BOUNDARY_OUTSET = 0.875      # 1.5 clears the 'Clender' but appears excessive  Trial and Error.
+SAMPLES_PER_UNIT_LENGTH = 4  # Target: 5 points for every 1 unit of length
+MIN_SAMPLES = 200            # Baseline for very small paths 200-400 range.  The more the smoother the curves.
 
 def transform_point(point, center_x, center_y, scale_factor):
     """
@@ -39,8 +46,8 @@ def transform_point(point, center_x, center_y, scale_factor):
 
 def simplify_and_offset_path(d_string, offset_value):
     """
-    Performs a TRUE uniform geometric offset (outset/inset) using pyclipper.
-    This replaces the unreliable proportional scaling method.
+    Performs a TRUE uniform geometric offset using pyclipper, 
+    with adaptive path sampling for improved fidelity on small curves.
     """
     try:
         path_obj = parse_path(d_string)
@@ -48,9 +55,20 @@ def simplify_and_offset_path(d_string, offset_value):
         print(f"Warning: Failed to parse SVG path: {e}")
         return d_string
 
-    # 1. NEW ROBUST SAMPLING: Convert SVG path to a high-precision polygon
-    #    Iterate over the entire path object using its 'point(t)' method.
-    num_samples = 100 # Number of points to approximate the Bezier curve
+    # 1. CALCULATE ADAPTIVE SAMPLE COUNT
+    path_length = path_obj.length()
+    
+    # Calculate required samples based on length and target density
+    num_samples = int(path_length * SAMPLES_PER_UNIT_LENGTH)
+    
+    # Use the larger of the calculated samples or the defined minimum
+    num_samples = max(num_samples, MIN_SAMPLES)
+    
+    # Report the change for verification (optional, but helpful)
+    print(f"     Path Length: {path_length:.2f}. Using {num_samples} samples.")
+    
+    
+    # 2. PERFORM ROBUST SAMPLING
     t_values = np.linspace(0, 1, num_samples, endpoint=True)
     sampled_points = []
 
@@ -61,38 +79,31 @@ def simplify_and_offset_path(d_string, offset_value):
         scaled_x = int(point.real * CLIPPER_SCALE_FACTOR)
         scaled_y = int(point.imag * CLIPPER_SCALE_FACTOR)
         
-        # Avoid adding duplicate points if the Bezier segments meet perfectly
+        # Only add unique points
         if not sampled_points or (scaled_x, scaled_y) != sampled_points[-1]:
             sampled_points.append((scaled_x, scaled_y))
 
 
-    # 2. Configure pyclipper and apply the uniform offset
-    #    We must use a list of lists for pyclipper to define the polygon input
-    pyclipper_input = [sampled_points]
-
+    # 3. CONFIGURE PYCLIPPER AND APPLY UNIFORM OFFSET
     pco = pyclipper.PyclipperOffset()
-    # Offset is scaled to integer space
     scaled_offset = int(offset_value * CLIPPER_SCALE_FACTOR)
     
-    # Add the path, marking it as a closed loop
-    pco.AddPath(pyclipper_input[0], pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
-    
-    # Execute the offset
+    pco.AddPath(sampled_points, pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
     offset_polygons = pco.Execute(scaled_offset)
 
-    # 3. Convert the resulting polygons back to an SVG path string (M...L...Z)
+    
+    # 4. CONVERT RESULT BACK TO SVG PATH STRING
     new_d_string = ""
-    # We assume the largest resulting polygon is the correct offset shape
     if offset_polygons:
-        # Find the largest polygon by area/length
+        # Find the largest resulting polygon
         largest_poly = max(offset_polygons, key=len)
         
-        # Convert the first polygon back to a basic SVG path string
+        # M: Move to command
         start_x = largest_poly[0][0] / CLIPPER_SCALE_FACTOR
         start_y = largest_poly[0][1] / CLIPPER_SCALE_FACTOR
         new_d_string += f"M {start_x:.3f},{start_y:.3f} "
         
-        # Follow with Line commands for the rest of the points
+        # L: Line to commands
         for x, y in largest_poly[1:]:
             unscaled_x = x / CLIPPER_SCALE_FACTOR
             unscaled_y = y / CLIPPER_SCALE_FACTOR
@@ -100,8 +111,7 @@ def simplify_and_offset_path(d_string, offset_value):
             
         new_d_string += "Z" # Close the path
     else:
-        # If offsetting failed to produce a result, return the original
-        return d_string
+        return d_string # Return original if offsetting failed
 
     return new_d_string
 

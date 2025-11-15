@@ -2,8 +2,11 @@
 """
 This is the third stage for processing map.osm into an SVG form suitable to pass the OPCD cloud tool 'Clender'.
 Stage 1) run osm2svg_v4.py to create out.svg from the OpenStreetMap export 'map.osm'.
-Stage 2) run svg_points2path.py to convert all stroke lines/and vevtor objects into paths and auto-smooth.
-Stage 3) run fix_bunker_inset.py to tame the bunker mesh step in the 'Clender'
+Stage 2) run svg_points2path.py to convert all stroke lines/and vevtor objects into paths and auto-smooth. Creates smoothed_out.svg
+Stage 3) run fix_bunker_inset.py to tame the bunker mesh step in the 'Clender'.  Creates final_smoothed_out.svg
+
+What this program does is to identify the bunkers, Alter the bunker shape by performing perfoms an outset, it then performas a  hifidelity smoothing by increasing the number bezier anchors and controls around the outer edge of the bunker/sandtrap.  Note: this does distort the size of the bunker/sandtrap and may introduce issues like overlaps of svg paths.  I've found the BOUNDARY_OUTSET'
+set to 0.875 works to fix all inset issues (at least in out example).   Once this step is done, it will pass Clender's Precut.
 """
 
 import sys

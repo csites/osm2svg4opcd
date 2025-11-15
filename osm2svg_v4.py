@@ -20,7 +20,7 @@ from shapely.ops import unary_union
 inputFile = 'map.osm'
 styleFile = 'styles.json'
 outputFile = 'out.svg'
-outWidth = 8192  # Width of the output, in pixels
+outWidth = 1000  # Width of the output, in pixels
 # The height will be calculated automatically based on the aspect ratio of the
 # downloaded chunk of OSM data.
 
@@ -473,7 +473,7 @@ def main():
             # --- Handle Stroke-to-Path Elements ---
             
             # Cast to float for geometric functions
-            stroke_width = float(style_data['attrs'].get('stroke-width', 1.0))
+            stroke_width = float(style_data['attrs'].get('stroke-width', 4.0))
             radius = float(style_data.get('corner_radius', 0.0)) # Safely using .get()
 
             # Pass coordinates, width, attributes, and radius to path conversion function
@@ -488,7 +488,7 @@ def main():
                 f'<path d="{path_d}" '
                 f'fill="{fill_color}" '
                 f'stroke="none" '          # 💥 FIX: Eliminate stroke attribute
-                f'stroke-width="0" '       # 💥 FIX: Ensure stroke-width is zero
+                f'stroke-width="4" '       # 💥 FIX: Ensure stroke-width is zero
                 f'id="way_{way_id}_path_{feature_tag}"/>\n' # Use tag for unique ID
             )
 

@@ -92,7 +92,7 @@
 	"fill": "none",
 	"stroke": "#00FFFF",
 	"stroke_to_path": "true",
-	"stroke-width": 8,
+	"stroke-width": 18,
 	"z-order": 20
     },
 
@@ -135,7 +135,7 @@
 	"fill": "none",	
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
-	"stroke-width": 3,
+	"stroke-width": 5,
 	"stroke-linecap": "butt",
 	"z-order": 98
     }

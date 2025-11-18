@@ -10,6 +10,7 @@
     <P><B>coordinates.py</B> Simply edit this file with your coordinates form your Lidar/DEM properties and it will generate a report
       with the coordinates for matching OpenStreetMaps for export of you 'map.osm' scaled to match you elevation maps. </p>
     <P><B>crs_transform.py</B> takes a geotiff image (DEM) image and does the same report giving you corrdinates matching OpenStreetMaps. </p>
+    <P><B>Download_MapOSM.py</B>does all of the above and optionally downloads a version of map.osm from http://overpass-api.de/ based on the coordinates of the laz/las or geotif DEM image elevation plate(s).  It uses the styles.json sheet to search and identify objects for the Overpass API to include in the map.osm output, comparible to the one from OpenStreetMaps.  So from your initial DEM/LAZ plate(s), it will fetch map.osm matching the coordinates and line everything up for conversion to an SVG and overlay or underlay, the elevation maps, Hillshade etc and they should all line up.  One example is included of a downloaded map.osm and out.svg from osm2svg_v4.py are included here.  Note you do need to specify the styles.json; './Download_MapOSM.py -h' to get these features from Overpass.  
     <footer></footer>
   </body>
 </html>

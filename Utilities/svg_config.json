@@ -1,0 +1,8 @@
+{
+    "viewbox_width": 1524,
+    "viewbox_height": 1524,
+    "dem_crs": "EPSG:3089",
+    "global_min_x": 4940000.0,
+    "global_min_y": 3980000.0,
+    "conversion_factor": 0.3047999902464003
+}

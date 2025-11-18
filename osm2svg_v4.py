@@ -21,6 +21,8 @@ inputFile = 'map.osm'
 styleFile = 'styles.json'
 outputFile = 'out.svg'
 outWidth = 1000  # Width of the output, in pixels
+# <svg width="1524mm" height="1524mm" viewBox="0 0 1524 1524" ...
+
 # The height will be calculated automatically based on the aspect ratio of the
 # downloaded chunk of OSM data.
 

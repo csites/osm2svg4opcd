@@ -72,7 +72,7 @@ python3 svg_points2path.py
 
 * **Output:** `paths_out.svg` (Polylines converted to basic paths) and **`smoothed_out.svg`** (Paths converted to Bézier curves for auto-smoothing).
 
-### Step 3: (Conditional) Finalize for Inset Operations
+### Step 3: (Optional and only if inset errors are reported.) Finalize for Inset Operations
 
 Run the optional bunker fix script if your `smoothed_out.svg` fails validation due to narrow or complex sandtrap shapes.
 
@@ -82,3 +82,12 @@ python3 fix_bunker_inset.py
 * **Input:** `smoothed_out.svg`
 
 * **Output:** `final_smoothed_out.svg`
+
+### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundy.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.
+
+python3 svg_clipper.py
+
+* ** Input:**  `smoothed_out.svg'
+
+* *** Output:** `clipped_smoothed_out.svg`
+

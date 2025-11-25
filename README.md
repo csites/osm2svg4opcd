@@ -89,5 +89,5 @@ python3 svg_clipper.py
 
 * ** Input:**  `smoothed_out.svg'
 
-* *** Output:** `clipped_smoothed_out.svg`
+* *** Output:** `clipped_final.svg`
 

@@ -53,3 +53,32 @@ This project is currently a three-step process to generate a Clender-compatible 
 ### Step 1: Generate Raw SVG with Boundary Clipping
 
 Run the core conversion script. This generates the initial, clipped SVG file containing `<polyline>` and `<path>` elements, **ensuring all features are constrained** to the map area.
+
+python3 osm2svg.py
+
+
+* **Input:** `map.osm`, `styles.json`, `scale_config.txt`
+
+* **Output:** `out.svg` (The primary clipped map output)
+
+### Step 2: Convert Polylines to Paths and Smooth
+
+Run the second-stage script to convert all `<polyline>` elements into `<path>` structures. This step often resolves "Color Errors" in Clender and prepares the geometry for smoothing.
+
+python3 svg_points2path.py
+
+
+* **Input:** `out.svg`
+
+* **Output:** `paths_out.svg` (Polylines converted to basic paths) and **`smoothed_out.svg`** (Paths converted to Bézier curves for auto-smoothing).
+
+### Step 3: (Conditional) Finalize for Inset Operations
+
+Run the optional bunker fix script if your `smoothed_out.svg` fails validation due to narrow or complex sandtrap shapes.
+
+python3 fix_bunker_inset.py
+
+
+* **Input:** `smoothed_out.svg`
+
+* **Output:** `final_smoothed_out.svg`

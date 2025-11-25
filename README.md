@@ -83,7 +83,7 @@ python3 fix_bunker_inset.py
 
 * **Output:** `final_smoothed_out.svg`
 
-### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.  Still a work in progress.  Know bug: at the end caps of the paths for roads and cartpaths, and the like  are clip square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.
+### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.  Still a work in progress.  Know bug: at the end caps of the paths for roads, cartpaths, and the like  are clipped square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.
 
 python3 svg_clipper.py
 

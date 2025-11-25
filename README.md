@@ -50,6 +50,17 @@ This project is currently a three-step process to generate a Clender-compatible 
 
 3. **Scaling:** Set your desired map scale ratio in `scale_config.txt` (e.g., `1000` for $1:1000$, or a custom value for imperial units).
 
+### Step 0: Acquire your map.osm
+
+Use a the Utility Download_MapOSM and provide it with an exported tif (geotif) image from QGIS of you Inner map.   Here Hillshade works well.
+
+python Utilities/Download_MapOSM.py --styles-file styles.json ~/Projects/Seneca/QGIS/Overlays/Seneca_Hillshade_Inner.tif -D -O
+
+
+* **Input: styles.json, QGIS Exported Inner map, height map, DEM, Hillshade, other .geotifs.
+
+* **Output: map.osm
+
 ### Step 1: Generate Raw SVG with Boundary Clipping
 
 Run the core conversion script. This generates the initial, clipped SVG file containing `<polyline>` and `<path>` elements, **ensuring all features are constrained** to the map area.
@@ -83,7 +94,7 @@ python3 fix_bunker_inset.py
 
 * **Output:** `final_smoothed_out.svg`
 
-### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.  Still a work in progress.  Know bug: at the end caps of the paths for roads, cartpaths, and the like  are clipped square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.
+### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.  Still a work in progress.  Known Bug: at the end caps of the paths for roads, cartpaths, and the like  are clipped square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.
 
 python3 svg_clipper.py
 

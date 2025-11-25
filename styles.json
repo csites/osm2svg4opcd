@@ -9,31 +9,31 @@
     },
 
     "aeroway.runway": {
-	"fill": "#BEBEBB",
+	"fill": "none",
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
-	"stroke-width": 9,
+	"stroke-width": 23,
 	"z-order": 80
     },
 
     "aeroway.taxiway": {
-	"fill": "#BEBEBB",
+	"fill": "none",
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
-	"stroke-width": 9,
+	"stroke-width": 15,
 	"z-order": 80
     },
 
    "aeroway.apron": {
-	"fill": "#BEBEBB",
+	"fill": "none",
 	"stroke": "#BEBEBB",
         "stroke_to_path": "true",
-	"stroke-width": 9,
+	"stroke-width": 15,
        	"z-order": 80
    },
     
    "barrier.fence": {
-	"fill": "#BE02AA",
+	"fill": "none",
 	"stroke": "#BE02AA",
 	"stroke_to_path": "true",
 	"stroke-width": 1,
@@ -52,7 +52,7 @@
 	"fill": "none",
 	"stroke": "#FCA328",
 	"stroke_to_path": "true" ,
-	"stroke-width": 6, 
+	"stroke-width": 12, 
 	"z-order": 21
     },
 
@@ -76,7 +76,7 @@
 	"fill": "none",
 	"stroke": "#B84127",
 	"stroke_to_path": "true",
-	"stroke-width": 2,
+	"stroke-width": 3,
 	"z-order": 21
     },
 
@@ -84,18 +84,39 @@
 	"fill": "none",
 	"stroke": "#FCA328",
 	"stroke_to_path": "true" ,
-	"stroke-width": 4,
+	"stroke-width": 8,
 	"z-order": 20
     },
 
+    "water.pond": {
+	"fill": "#0000C0",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 99
+    },
+    
+    "water.reservoir": {
+	"fill": "#0000C0",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 99
+    },
+    
     "waterway": {
 	"fill": "none",
 	"stroke": "#00FFFF",
 	"stroke_to_path": "true",
-	"stroke-width": 18,
+	"stroke-width": 14,
 	"z-order": 20
     },
 
+    "golf.water_hazard": {
+	"fill": "#0000C0",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 99
+    },
+    
     "golf.fairway": {
 	"fill": "#43E561",
 	"stroke": "none",
@@ -135,10 +156,31 @@
 	"fill": "none",	
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
-	"stroke-width": 5,
+	"stroke-width": 3,
 	"stroke-linecap": "butt",
 	"z-order": 98
-    }
+    },
+
+    "natural.scrub": {
+	"fill": "#164B20",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 80
+    },
     
+    "natural.wood": {
+	"fill": "#164B20",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 80
+    },
+    
+    "parking.surface": {
+	"fill": "#FCA328",
+	"stroke": "none",
+	"stroke-width": 0,
+	"z-order": 20
+    }
+	
 }
 

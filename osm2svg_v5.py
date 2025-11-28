@@ -11,6 +11,7 @@ import math
 import sys
 import os
 import json 
+from shapely.geometry import LineString
 
 # --- Global Configuration and Assumed Inputs ---
 inputFile = "map.osm"
@@ -121,24 +122,93 @@ def clip_polyline_to_bounds(coords, min_x, min_y, max_x, max_y):
     return clipped_coords
 
 
+def coords_to_svg_d(coords):
+    """Helper to convert a list of (x,y) tuples to 'M x,y L x,y ... Z' """
+    if len(coords) < 3: return ""
+    
+    start_pt = coords[0]
+    
+    # M (move to start)
+    d_str = f"M {start_pt[0]:.4f},{start_pt[1]:.4f}" 
+    
+    # L (line to rest of points)
+    d_str += " L " + " ".join([f"{x:.4f},{y:.4f}" for x, y in coords[1:]])
+    
+    # Z (close path)
+    d_str += " Z" 
+    
+    return d_str
+
+def shapely_polygon_to_svg_d(poly_geom):
+    """
+    Converts a Shapely Polygon or MultiPolygon to an SVG 'd' string.
+    Includes both Exterior and Interior rings (holes).
+    """
+    if poly_geom.is_empty:
+        return ""
+
+    parts = []
+    
+    # Import inside to keep main imports clean if user preferred it that way
+    from shapely.ops import unary_union
+    from shapely.geometry import Polygon, MultiPolygon
+
+    # Ensure we are iterating over individual Polygon objects
+    if isinstance(poly_geom, Polygon):
+        geoms = [poly_geom]
+    elif isinstance(poly_geom, MultiPolygon):
+        geoms = unary_union(poly_geom).geoms
+    else:
+        # Handle GeometryCollection or other types by attempting a union
+        geoms = unary_union(poly_geom).geoms if poly_geom.geom_type == 'GeometryCollection' else [poly_geom]
+
+    for p in geoms:
+        if p.geom_type != 'Polygon': continue
+        
+        # 1. Exterior Ring (The Outside)
+        if p.exterior:
+            x, y = p.exterior.coords.xy
+            coords = list(zip(x, y))
+            parts.append(coords_to_svg_d(coords))
+        
+        # 2. Interior Rings (The Holes)
+        for interior in p.interiors:
+            x, y = interior.coords.xy
+            coords = list(zip(x, y))
+            parts.append(coords_to_svg_d(coords))
+
+    return " ".join(parts)
+
 def convert_stroke_to_path(way_coords, stroke_width, attrs, radius):
     """
-    Calculates a complex path 'd' string for stroke-to-path conversion.
+    Calculates the filled polygon geometry from the line segments using Shapely buffer.
     """
-    if not way_coords:
+    if len(way_coords) < 2:
         return ""
     
-    # Placeholder implementation: Returns a simple polyline path
-    path_d = f"M {way_coords[0][0]:.4f},{way_coords[0][1]:.4f}"
-    for x, y in way_coords[1:]:
-        path_d += f"L {x:.4f},{y:.4f}"
-        
-    # If a way is closed, close the path (important for area features converted from strokes)
-    if way_coords[0] == way_coords[-1]:
-        path_d += " Z"
+    # Import is placed here to minimize global namespace pollution, 
+    # assuming LineString is imported globally at the top.
+    from shapely.geometry import LineString 
 
-    return path_d
+    # 1. Create a Shapely LineString from the clipped projected coordinates
+    line = LineString(way_coords)
+    
+    # 2. Calculate the buffer radius (half the stroke width)
+    radius = stroke_width / 2.0
+    
+    # 3. Buffer the line to create a filled polygon
+    # cap_style=2 (Square) and join_style=3 (Bevel) are CRITICAL 
+    # to prevent internal corner filling and round ends.
+    poly = line.buffer(
+        radius, 
+        cap_style=2,  # Square Cap
+        join_style=3  # Bevel Join (This is the fix for "filling holes" in corners)
+    )
+    
+    # 4. Convert the resulting Polygon or MultiPolygon to the SVG 'd' string
+    path_d = shapely_polygon_to_svg_d(poly)
 
+y    return path_d
 
 def get_way_coordinates(way_id):
     """Retrieves and projects the SVG coordinates for a single way ID."""
@@ -405,9 +475,10 @@ def main():
         stroke_to_path = attrs.pop('stroke_to_path', False)
         if isinstance(stroke_to_path, str):
             stroke_to_path = (stroke_to_path.lower() == 'true')
-
-        corner_radius = float(attrs.pop('corner_radius', 0))
-
+            
+        # No longer using corner_radius here    
+        attrs.pop('corner_radius', None) 
+            
         try:
             z_order = int(attrs.pop('z-order', 0))
         except ValueError:
@@ -420,7 +491,6 @@ def main():
         styles[tag] = {
             'svg_style': svg_style_string,
             'stroke_to_path': stroke_to_path,
-            'corner_radius': corner_radius,
             'z-order': z_order,
             'attrs': attrs # Store original attributes for access
         }
@@ -495,19 +565,39 @@ def main():
 
         # 4. Generate SVG element string
         svg_element = ""
+        # Check if the way is a closed loop
+        is_closed_way = (len(way_coords_unclipped) >= 2) and (way_coords_unclipped[0] == way_coords_unclipped[-1])
 
         if style_data.get('stroke_to_path', False): 
             # --- STROKE-TO-PATH LOGIC (results in a FILLED shape/path) ---
             stroke_width = float(style_data['attrs'].get('stroke-width', 4.0))
-            radius = float(style_data.get('corner_radius', 0.0)) 
+            fill_color = style_data['attrs'].get('stroke', '#000000') # Use original stroke color as new fill color
+            path_d = convert_stroke_to_path(way_coords, stroke_width, style_data['attrs'], 0) 
 
-            path_d = convert_stroke_to_path(way_coords, stroke_width, style_data['attrs'], radius) 
-
+            if not path_d: continue
             # Apply the full, original SVG style string to the path
             svg_element = (
                 f'<path d="{path_d}" '
-                f'{style_data["svg_style"]} '
-                f'id="way_{way.get("id")}_path_{feature_tag}"/>\n' 
+                f'fill="{fill_color}" ' # Set the new fill color
+                f'stroke="none" ' # Crucially remove the stroke
+                f'stroke-width="0" ' # Ensure stroke width is zeroed
+                f'fill-rule="evenodd" ' # Standard for filled paths
+                f'id="way_{way.get("id")}_path_{feature_tag}"/>\n'  
+            )
+            
+        elif is_closed_way and ('fill' in style_data['attrs'] and style_data['attrs']['fill'] not in ('none', 'transparent')):
+            path_d = join_ways_into_path_d([way_coords]) 
+            
+            # Area features often have no stroke or stroke-width=0
+            fill_color = style_data['attrs'].get('fill', '#000000') 
+            
+            svg_element = (
+                f'<path d="{path_d}" '
+                f'fill="{fill_color}" '
+                f'stroke="none" '
+                f'stroke-width="0" ' 
+                f'fill-rule="evenodd" ' 
+                f'id="way_{way.get("id")}_area_{feature_tag}"/>\n'
             )
 
         else:

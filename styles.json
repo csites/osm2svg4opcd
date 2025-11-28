@@ -9,7 +9,7 @@
     },
 
     "aeroway.runway": {
-	"fill": "#BEBEBB",
+	"fill": "none",
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
 	"stroke-width": 23,
@@ -17,7 +17,7 @@
     },
 
     "aeroway.taxiway": {
-	"fill": "#BEBEBB",
+	"fill": "none",
 	"stroke": "#BEBEBB",
 	"stroke_to_path": "true",
 	"stroke-width": 15,
@@ -25,7 +25,7 @@
     },
 
    "aeroway.apron": {
-	"fill": "#BEBEBB",
+	"fill": "#none",
 	"stroke": "#BEBEBB",
         "stroke_to_path": "true",
 	"stroke-width": 15,

@@ -22,9 +22,9 @@ This tool processes raw OpenStreetMap (`.osm`) data and converts it into a scale
 
 ### OpenStreetMap Data (`map.osm`)
 
-The input file, `map.osm`, is an XML-based language containing geographical features identified by volunteers. Each feature is defined by **Key/Value** pairs (e.g., `<tag k='highway' v='primary'/>`).
+The input file, `map.osm`, is an XML-based language containing geographical features identified by volunteers. Each feature is defined by **Key/Value** pairs (e.g., `<tag k='highway' v='primary'/>`).  Map.osm is obtained by going to the OpenStreetMaps website, finding the location of interest, and using the website's Export function.  Geographically OpenStreetMap uses WGS 84 coordinates.   An excellent alternative is to use the Overpass API, which is used in the Utility programs to download a map.osm of the area of interest you provide (also in WGS 84 coordinates).  
 
-The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.
+The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.  In the next version, I will be adding a new command for stroke-based objects (roads, paths, highways, railways, waterways) called 'clipper-mode': either 'default' or 'ubreakable'.  This is to process intersections and insert breaks in the line segments to prevent overlaps.  'clipper-mode' is only valid with stroke objects (line segments). 
 
 ### Licensing
 

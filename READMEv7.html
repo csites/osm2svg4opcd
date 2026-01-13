@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>osm2svg4opcd Documentation</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.6; color: #24292e; max-width: 900px; margin: 0 auto; padding: 2rem; background-color: #f6f8fa; }
+        .container { background: white; padding: 3rem; border: 1px solid #d1d5da; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+        h1 { border-bottom: 2px solid #eaecef; padding-bottom: 0.3rem; color: #0366d6; }
+        h2 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3rem; margin-top: 2rem; }
+        code { background-color: rgba(27,31,35,0.05); padding: 0.2rem 0.4rem; border-radius: 3px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 85%; }
+        pre { background-color: #f6f8fa; padding: 1rem; border-radius: 6px; overflow: auto; border: 1px solid #dfe1e4; }
+        table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+        table, th, td { border: 1px solid #dfe1e4; }
+        th, td { padding: 12px; text-align: left; }
+        th { background-color: #f6f8fa; }
+        .feature-badge { background: #28a745; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; vertical-align: middle; }
+        .version { color: #6a737d; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>osm2svg4opcd <span class="version">(v7.0)</span></h1>
+    <p><strong>OpenStreetMap to SVG Converter for Open Platform Course Design (OPCD)</strong></p>
+    <p>A specialized GIS-to-SVG engine designed to create high-fidelity, scale-accurate map data for golf course simulation. This tool bridges the gap between raw OpenStreetMap data, QGIS imagery, and the Blender (Clender) workflow.</p>
+
+    <h2>🚀 Key Features</h2>
+    <ul>
+        <li><strong>Automated Background Alignment <span class="feature-badge">New</span></strong>: Uses <code>rasterio</code> to reproject and clip GeoTIFFs (Google/Bing) into the map’s WGS84 coordinate space. </li>
+        <li><strong>Unitless Scaling</strong>: Switched from explicit <code>mm</code> units to SVG User Units to resolve the 96 DPI (3.78x) scale mismatch.</li>
+        <li><strong>Proximity Building Filter</strong>: Automatically identifies <code>leisure: golf_course</code> boundaries and filters out buildings that fall outside the simulation area.</li>
+        <li><strong>Z-Order Path Clipping</strong>: Higher-priority features (bunkers/paths) "clip" geometry beneath them (fairways/rough) to prevent mesh overlapping.</li>
+        <li><strong>Scale Accuracy</strong>: Strictly maintains a <strong>1 unit = 1 meter</strong> relationship.</li>
+    </ul>
+
+    
+
+    <h2>📐 Core Concepts</h2>
+    
+    <h3>1. The "Cookie Cutter" Raster Logic</h3>
+    <p>The tool creates a temporary <code>_aligned.png</code> by defining a target grid based on the <code>MIN/MAX</code> Lon/Lat of your <code>map.osm</code>. It reprojects pixels from your source GeoTIFF into a "Flat-Degree" (EPSG:4326) grid, ensuring perfect alignment with vector data.</p>
+    
+    
+
+    <h3>2. Styles and Z-Ordering (<code>styles.json</code>)</h3>
+    <p>The rendering engine uses a centralized configuration to handle:</p>
+    <ul>
+        <li><strong>z-order</strong>: Higher numbers = Foreground.</li>
+        <li><strong>clipper-mode</strong>: <code>default</code> or <code>unbreakable</code> for complex intersections.</li>
+        <li><strong>fill-rule</strong>: Utilizes <code>evenodd</code> for complex MultiPolygon relations.</li>
+    </ul>
+
+    <h2>🛠 Usage Workflow</h2>
+
+    <h3>Step 1: Generate Aligned SVG</h3>
+    <pre>python3 osm2svg_v7.py --background1="/path/to/your/QGIS_Export.tif"</pre>
+    <p><strong>Input:</strong> <code>map.osm</code>, <code>styles.json</code>, <code>scale_config.txt</code>, <code>*.tif</code><br>
+    <strong>Output:</strong> <code>out.svg</code>, <code>*_aligned.png</code></p>
+
+    <h3>Step 2: Path Optimization</h3>
+    <pre>python3 svg_points2path.py</pre>
+    <p>Converts polylines to optimized <code>&lt;path&gt;</code> structures to resolve "Color Errors" in Clender.</p>
+
+    <h2>📝 Configuration Files</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>File</th>
+                <th>Purpose</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>styles.json</code></td>
+                <td>Feature identification, colors, and Z-order.</td>
+            </tr>
+            <tr>
+                <td><code>scale_config.txt</code></td>
+                <td>Global scale (default 1000 for 1:1000 scale).</td>
+            </tr>
+            <tr>
+                <td><code>map.osm</code></td>
+                <td>Source WGS84 vector data.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>📝 Change Log</h2>
+    <ul>
+        <li><strong>v7.0:</strong> Integrated <code>rasterio</code> warp engine; "Unitless" SVG units; origin synchronization.</li>
+        <li><strong>v6.5:</strong> Pass 1.5 Spatial Building Filtering (Golf course proximity).</li>
+        <li><strong>v6.0:</strong> Multi-pass Z-order clipping and MultiPolygon support.</li>
+    </ul>
+
+    <h2>⚖️ Licensing</h2>
+    <p>Source Code: MIT License. Data: OpenStreetMap (ODbL).</p>
+</div>
+
+</body>
+</html>

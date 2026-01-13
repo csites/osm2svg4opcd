@@ -1,6 +1,38 @@
-# osm2svg4opcd
+# osm2svg4opcd (v7.0)
 
 **OpenStreetMap to SVG Converter for Open Platform Course Design (OPCD)**
+This is a complete re-write of osm2svg_v5.py described earlier.  It is now called osm2svg_v7.py were has v6 was my development code.  We have made many many changes to it since v5.  First lets review the command line help.
+
+* osm2svg4opcd$ python ./osm2svg_v7.py --help
+usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
+                     [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
+
+Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
+
+options:
+  -h, --help            show this help message and exit
+  --infile INFILE       Input OSM XML file (default: map.osm)
+  --outfile OUTFILE     Output SVG file (default: out.svg)
+  --styles STYLES       JSON style definition file (default: styles.json)
+  --background1 BACKGROUND1
+                        Path to the first GeoTIFF image file for the background.
+  --background2 BACKGROUND2
+                        Path to the second GeoTIFF image file for the background.
+  --background3 BACKGROUND3
+                        Path to the third GeoTIFF image file for the background.
+  --background4 BACKGROUND4
+                        Path to the fourth GeoTIFF image file for the background.
+
+## CHANGES in v7.
+
+* Change 1) styles.json has been expanded to include "clipper_mode": "unbreakable" or "default", which is used in the program's clip logic. Clipping_mode is for cartpaths, road, highways etc.  Typically of a road or highway crosses a cart path, the cart path should be clipped by the road.  Som roads and highways are "unbreakable" and regardless of z-order (the z-order preference for our features).  Railroad tracks are one example of a feature that should be unbreakable.  Waterways might be another.  Change 2) buildings are a special case entry in our styles.json.  It's optional, but if you want to outline the building floor area in your SVG using the building style.  The building style has one special option 'distance-from' which represents the number of meters from the golf course boundry (as defined in the leisure.golf_course style) to include housing outlines in your svg.  Set distance-from to 0 and no buildings except those on the course are identified.  
+* Change 2).  We have organized and named all of the Inkscape 'Layers and Objects' to be labled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML <node id="123456789') and the sement number corresponds to the clipped segment from any intersections.
+* Change 3). Added background images.  In the OPCD workflow, with QGIS create and inside and outside area of interest from our lidar images and can import an QGIS 'XYZ tile' from Hillshade, Bing, Google and OpenStreetmap (not the one we use unfortunately, it would have made life so much easier).  We can then export those QGIS layers as tiffs and remap the coordinate system the a WGS84 form that should match our map.osm area of interest.   You can the import these into the svg as a background image.   Then for example, one can globally change the global opacity of the SVG streets to let the background show through slightly.   This shows trees, bushes and land features to show throught.  Very useful for Hillshade images.
+* Change 4) We do some slight rounding of corners.
+
+* more later...
+
+We can optionally pass arguements to the program
 
 A specialized tool built to streamline the creation of high-quality, pre-processed SVG map data for golf course simulation design, particularly for the **GSPro** / **OPCD** workflow leading into **Blender** (via "Clender").
 

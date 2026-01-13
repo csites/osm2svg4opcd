@@ -1,186 +1,234 @@
 {
     "Comment": { "The_SVG_shape_Layer_Order_is_determined_by_the_JSON_order_here_First_are_placed_at_the_bottom":"" },
-    
+   
     "leisure.golf_course": {
-	"fill": "#278438",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": -90
+        "fill": "#278438",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": -90
+    },
+     
+    "railway.rail": {
+        "stroke": "#FAA0BE",
+        "stroke-width": 1.44,
+        "stroke_to_path": true,
+        "z-order": 90,
+        "clipper_mode": "unbreakable"
     },
 
     "aeroway.runway": {
-	"fill": "none",
-	"stroke": "#BEBEBB",
-	"stroke_to_path": "true",
-	"stroke-width": 23,
-	"z-order": 80
+        "fill": "none",
+        "stroke": "#BEBEBB",
+        "stroke_to_path": true,
+        "stroke-width": 23,
+        "z-order": 99,
+        "clipper_mode": "unbreakable"
     },
 
     "aeroway.taxiway": {
-	"fill": "none",
-	"stroke": "#BEBEBB",
-	"stroke_to_path": "true",
-	"stroke-width": 15,
-	"z-order": 80
+        "fill": "none",
+        "stroke": "#BEBEBB",
+        "stroke_to_path": true,
+        "stroke-width": 15,
+        "z-order": 98,
+        "clipper_mode": "default"
     },
 
    "aeroway.apron": {
-	"fill": "#none",
-	"stroke": "#BEBEBB",
-        "stroke_to_path": "true",
-	"stroke-width": 15,
-       	"z-order": 80
+        "fill": "none",
+        "stroke": "#BEBEBB",
+        "stroke_to_path": true,
+        "stroke-width": 15,
+        "z-order": 98,
+        "clipper_mode": "default"
    },
-    
+     
    "barrier.fence": {
-	"fill": "none",
-	"stroke": "#BE02AA",
-	"stroke_to_path": "true",
-	"stroke-width": 1,
-       	"z-order": 0
+        "fill": "none",
+        "stroke": "#BE02AA",
+        "stroke_to_path": true,
+        "stroke-width": 1,
+        "z-order": 0
     },
 
     "highway": {
-	"fill": "none",
-	"stroke": "#FCA328",
-	"stroke_to_path": "true",
-	"stroke-width": 2,
-	"z-order": 21
+        "fill": "none",
+        "stroke": "#FCA328",
+        "stroke_to_path": true,
+        "stroke-width": 2,
+        "z-order": 21,
+        "clipper_mode": "default"
     },
 
     "highway.motorway": {
-	"fill": "none",
-	"stroke": "#FCA328",
-	"stroke_to_path": "true" ,
-	"stroke-width": 6, 
-	"z-order": 21
+        "fill": "none",
+        "stroke": "#FCA328",
+        "stroke_to_path": true, 
+        "stroke-width": 13,  
+        "z-order": 21,
+        "clipper_mode": "unbreakable"
     },
 
     "highway.trunk": {
-	"fill": "none",
-	"stroke": "#FFFF00",
-	"stroke_to_path": "true",
-	"stroke-width": 10,
-	"z-order": 21
+        "fill": "none",
+        "stroke": "#FFFF00",
+        "stroke_to_path": true,
+        "stroke-width": 5,
+        "z-order": 21,
+        "clipper_mode": "default"
     },
 
     "highway.track": {
-	"fill": "none",
-	"stroke": "#B84127",
-	"stroke_to_path": "true",
-	"stroke-width": 6,
-	"z-order": 21
+        "fill": "none",
+        "stroke": "#B84127",
+        "stroke_to_path": true,
+        "stroke-width": 6,
+        "z-order": 21,
+        "clipper_mode": "default"
     },
 
     "highway.footway": {
-	"fill": "none",
-	"stroke": "#B84127",
-	"stroke_to_path": "true",
-	"stroke-width": 3,
-	"z-order": 21
+        "fill": "none",
+        "stroke": "#B84127",
+        "stroke_to_path": true,
+        "stroke-width": 3,
+        "z-order": 21,
+        "clipper_mode": "default"
     },
 
+    "highway.primary": {
+        "fill": "none",
+        "stroke": "#FCA328",
+        "stroke_to_path": true,
+        "stroke-width": 32,
+        "z-order": 20,
+        "clipper_mode": "unbreakable"
+    },
+    
     "highway.residential": {
-	"fill": "none",
-	"stroke": "#FCA328",
-	"stroke_to_path": "true" ,
-	"stroke-width": 8,
-	"z-order": 20
+        "fill": "none",
+        "stroke": "#FCA328",
+        "stroke_to_path": true,
+        "stroke-width": 8,
+        "z-order": 20,
+        "clipper_mode": "default"
     },
-
+    
     "water.pond": {
-	"fill": "#0000C0",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 99
+        "fill": "#0000C0",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 99
     },
     
-    "water.reservoir": {
-	"fill": "#0000C0",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 99
+    "water.reservoir": {  
+        "fill": "#0000C0",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 99
     },
-    
+     
     "waterway": {
-	"fill": "none",
-	"stroke": "#00FFFF",
-	"stroke_to_path": "true",
-	"stroke-width": 14,
-	"z-order": 20
+        "fill": "none",
+        "stroke": "#00FFFF",
+        "stroke_to_path": true,
+        "stroke-width": 14,
+        "z-order": 99,
+        "clipper_mode": "unbreakable"
     },
 
-    "golf.water_hazard": {
-	"fill": "#0000C0",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 99
+    "water": {
+        "fill": "#0000C0",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 99
     },
     
+    "natural.water": {
+        "fill": "#0000C0",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 99
+    },
+    
+    "golf.water_hazard": {
+        "fill": "#0000C0",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 99
+    },
+     
     "golf.fairway": {
-	"fill": "#43E561",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 60
+        "fill": "#43E561",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 60
     },
 
     "golf.drivingrange": {
-	"fill": "#43E561",
-	"stroke": "none",
-	"stroke-width": 0, 
-	"z-order": 21
+        "fill": "#43E561",
+        "stroke": "none",
+        "stroke-width": 0,  
+        "z-order": 21
     },
 
     "golf.tee": {
-	"fill": "#A0E5B8",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 70
+        "fill": "#A0E5B8",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 70
     },
 
     "golf.green": {
-	"fill": "#BCE5A4",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 90
+        "fill": "#BCE5A4",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 90
     },
 
     "golf.bunker": {
-	"fill": "#E5E5AA",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 70
+        "fill": "#E5E5AA",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 70
     },
 
     "golf.cartpath": {
-	"fill": "none",	
-	"stroke": "#BEBEBB",
-	"stroke_to_path": "true",
-	"stroke-width": 3,
-	"stroke-linecap": "butt",
-	"z-order": 98
+        "fill": "none",
+        "stroke": "#BEBEBB",
+        "stroke_to_path": true,
+        "stroke-width": 3,
+        "stroke-linecap": "butt",
+        "z-order": 98,
+        "clipper_mode": "default"
     },
 
     "natural.scrub": {
-	"fill": "#164B20",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 80
+        "fill": "#164B20",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 80
     },
-    
+     
     "natural.wood": {
-	"fill": "#164B20",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 80
+        "fill": "#164B20",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 80
     },
-    
+     
     "parking.surface": {
-	"fill": "#FCA328",
-	"stroke": "none",
-	"stroke-width": 0,
-	"z-order": 20
-    }
-	
-}
+        "fill": "#FCA328",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 20
+    },
 
+    "building": {
+	"fill": "#FAA0BE",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 98,
+	"distance-from": 250
+    }
+}

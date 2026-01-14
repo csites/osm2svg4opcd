@@ -6,32 +6,33 @@ This is a complete re-write of osm2svg_v5.py described earlier.  It is now calle
 * To use this program here is the typical workflow.  Follow the OPCD workflow to build your Inner and Outer Lidar / DEM elevation maps in QGIS.  Google "OPCD None to Done" (V4 Toolset). PLease make sure you get your Inner and Outers setup correctly as it used to define the borders of the area we work with.    Use QGIS to export a Hillshade image of your course using 'Layer' to define coordinates from your Inner or Outer layer.  This can be helpfull because if you export your Hillshade as a "Geotiff" image (.tif), it includes all of the coordinates for the course your trying to build.   With you Hillshade image typically matched to you 'Inner' layer, we can us then Utilities/Download_MapOSM.py to download map.osm (an XML OpenStreetMap image).  You can also do the same as Hillshade with the QGIS XYZ Tile tool for Google, Bing and even OpenStreetMap.  Sadly that OpenStreetMap query is in a completely wrong format which is why this program exists.   If you Hillshade, Google, Bing, DEM, export was clipped to your inner/outer layer the run;  "Utilities/Download_MapOSM --styles-file styles.json Hillshade.tif -D".   This will build the map.osm we need of the area in the Inner/outer area defined by your geotiff image; hillshade.tif   You can also use the OpenStreetMap.org website to lookup your course and use the 'Export' button to create the map.osm.  Note; in the later you may need to adjust the window size manually with Longitude and Latitude adjustments to the WGS84 coordinates.  The OpenStreetMap.org website has the approach that the golf course is searchable and if you feel up to it, you can contribute some time to updating or adding features not described.     
 
 * Utilities/Download_MapOSM.py [-h] --styles-file STYLES_FILE [--crs CRS] [-D] [-O] data_files [data_files ...]
-* (Where data_files are your laz/dem tiles, or a geotiff image from QGIS)
+(Where "data_files" are your laz/dem tiles, or a geotiff image from QGIS)
 
-* If you have the area defined by Longitude, latitude ranges you can use this to pull the map.osm file for that area. 
-* Utilities/Overpass_downloader.py <lat1> <lon1> <lat2> <lon2>
+* If you have the area defined by Longitude, latitude ranges you can use this to pull the map.osm file for that area.  ... Utilities/Overpass_downloader.py <lat1> <lon1> <lat2> <lon2> ...
 
 
-* osm2svg4opcd$ python ./osm2svg_v7.py --help
-* usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
-*                     [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
-*
-* Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
-*
-* options:
-*  -h, --help            show this help message and exit
-*  --infile INFILE       Input OSM XML file (default: map.osm)
-*  --outfile OUTFILE     Output SVG file (default: out.svg)
-*  --styles STYLES       JSON style definition file (default: styles.json)
-*  --background1 BACKGROUND1
-*                        Path to the first GeoTIFF image file for the background.
-*  --background2 BACKGROUND2
-*                        Path to the second GeoTIFF image file for the background.
-*  --background3 BACKGROUND3
-*                        Path to the third GeoTIFF image file for the background.
-*  --background4 BACKGROUND4
-*                        Path to the fourth GeoTIFF image file for the background.
-*
+...
+osm2svg4opcd$ python ./osm2svg_v7.py --help
+ usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
+                     [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
+
+ Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
+
+ options:
+  -h, --help            show this help message and exit
+  --infile INFILE       Input OSM XML file (default: map.osm)
+  --outfile OUTFILE     Output SVG file (default: out.svg)
+  --styles STYLES       JSON style definition file (default: styles.json)
+  --background1 BACKGROUND1
+                        Path to the first GeoTIFF image file for the background.
+  --background2 BACKGROUND2
+                        Path to the second GeoTIFF image file for the background.
+  --background3 BACKGROUND3
+                        Path to the third GeoTIFF image file for the background.
+  --background4 BACKGROUND4
+                        Path to the fourth GeoTIFF image file for the background.
+
+...
 
 ## CHANGES in v7.
 

@@ -3,38 +3,47 @@
 **OpenStreetMap to SVG Converter for Open Platform Course Design (OPCD)**
 This is a complete re-write of osm2svg_v5.py described earlier.  It is now called osm2svg_v7.py were has v6 was my development code.  We have made many many changes to it since v5.  First lets review the command line help.
 
+* To use this program here is the typical workflow.  Follow the OPCD workflow to build your Inner and Outer Lidar / DEM elevation maps in QGIS.  Google "OPCD None to Done" (V4 Toolset). PLease make sure you get your Inner and Outers setup correctly as it used to define the borders of the area we work with.    Use QGIS to export a Hillshade image of your course using 'Layer' to define coordinates from your Inner or Outer layer.  This can be helpfull because if you export your Hillshade as a "Geotiff" image (.tif), it includes all of the coordinates for the course your trying to build.   With you Hillshade image typically matched to you 'Inner' layer, we can us then Utilities/Download_MapOSM.py to download map.osm (an XML OpenStreetMap image).  You can also do the same as Hillshade with the QGIS XYZ Tile tool for Google, Bing and even OpenStreetMap.  Sadly that OpenStreetMap query is in a completely wrong format which is why this program exists.   If you Hillshade, Google, Bing, DEM, export was clipped to your inner/outer layer the run;  "Utilities/Download_MapOSM --styles-file styles.json Hillshade.tif -D".   This will build the map.osm we need of the area in the Inner/outer area defined by your geotiff image; hillshade.tif   You can also use the OpenStreetMap.org website to lookup your course and use the 'Export' button to create the map.osm.  Note; in the later you may need to adjust the window size manually with Longitude and Latitude adjustments to the WGS84 coordinates.  The OpenStreetMap.org website has the approach that the golf course is searchable and if you feel up to it, you can contribute some time to updating or adding features not described.     
+
+* Utilities/Download_MapOSM.py [-h] --styles-file STYLES_FILE [--crs CRS] [-D] [-O] data_files [data_files ...]
+* (Where data_files are your laz/dem tiles, or a geotiff image from QGIS)
+
+* If you have the area defined by Longitude, latitude ranges you can use this to pull the map.osm file for that area. 
+* Utilities/Overpass_downloader.py <lat1> <lon1> <lat2> <lon2>
+
+
 * osm2svg4opcd$ python ./osm2svg_v7.py --help
-usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
-                     [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
-
-Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
-
-options:
-  -h, --help            show this help message and exit
-  --infile INFILE       Input OSM XML file (default: map.osm)
-  --outfile OUTFILE     Output SVG file (default: out.svg)
-  --styles STYLES       JSON style definition file (default: styles.json)
-  --background1 BACKGROUND1
-                        Path to the first GeoTIFF image file for the background.
-  --background2 BACKGROUND2
-                        Path to the second GeoTIFF image file for the background.
-  --background3 BACKGROUND3
-                        Path to the third GeoTIFF image file for the background.
-  --background4 BACKGROUND4
-                        Path to the fourth GeoTIFF image file for the background.
+* usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
+*                     [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
+*
+* Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
+*
+* options:
+*  -h, --help            show this help message and exit
+*  --infile INFILE       Input OSM XML file (default: map.osm)
+*  --outfile OUTFILE     Output SVG file (default: out.svg)
+*  --styles STYLES       JSON style definition file (default: styles.json)
+*  --background1 BACKGROUND1
+*                        Path to the first GeoTIFF image file for the background.
+*  --background2 BACKGROUND2
+*                        Path to the second GeoTIFF image file for the background.
+*  --background3 BACKGROUND3
+*                        Path to the third GeoTIFF image file for the background.
+*  --background4 BACKGROUND4
+*                        Path to the fourth GeoTIFF image file for the background.
+*
 
 ## CHANGES in v7.
 
 * Change 1) styles.json has been expanded to include "clipper_mode": "unbreakable" or "default", which is used in the program's clip logic. Clipping_mode is for cartpaths, road, highways etc.  Typically of a road or highway crosses a cart path, the cart path should be clipped by the road.  Som roads and highways are "unbreakable" and regardless of z-order (the z-order preference for our features).  Railroad tracks are one example of a feature that should be unbreakable.  Waterways might be another.  Change 2) buildings are a special case entry in our styles.json.  It's optional, but if you want to outline the building floor area in your SVG using the building style.  The building style has one special option 'distance-from' which represents the number of meters from the golf course boundry (as defined in the leisure.golf_course style) to include housing outlines in your svg.  Set distance-from to 0 and no buildings except those on the course are identified.  
 * Change 2).  We have organized and named all of the Inkscape 'Layers and Objects' to be labled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML <node id="123456789') and the sement number corresponds to the clipped segment from any intersections.
 * Change 3). Added background images.  In the OPCD workflow, with QGIS create and inside and outside area of interest from our lidar images and can import an QGIS 'XYZ tile' from Hillshade, Bing, Google and OpenStreetmap (not the one we use unfortunately, it would have made life so much easier).  We can then export those QGIS layers as tiffs and remap the coordinate system the a WGS84 form that should match our map.osm area of interest.   You can the import these into the svg as a background image.   Then for example, one can globally change the global opacity of the SVG streets to let the background show through slightly.   This shows trees, bushes and land features to show throught.  Very useful for Hillshade images.
-* Change 4) We do some slight rounding of corners.
+* Change 4) We do some slight rounding of corners.  Many of the cartpaths and courses features from OpenStreetMap have simplified and reduced the number of linesegments near curves creating points and kinks in things like cartpaths, greens, fairways.   This program atempts to smooth them.  
 
-* more later...
 
-We can optionally pass arguements to the program
+* The initial goal of this program was to take a golf course from OpenStreetMap (https://openstreetmap.org) and
+convert it to an Inkscape image (SVG) that could pass the ** GSPro ** course building workflow ** OPCD ** to get the course into ** Blender **, using an OPCD tool called the "Clender".   However, this tool could have many more uses where key features of OpenStreetMap need to be translated into a SVG image.
 
-A specialized tool built to streamline the creation of high-quality, pre-processed SVG map data for golf course simulation design, particularly for the **GSPro** / **OPCD** workflow leading into **Blender** (via "Clender").
 
 ## 🚀 Key Features
 
@@ -54,9 +63,9 @@ This tool processes raw OpenStreetMap (`.osm`) data and converts it into a scale
 
 ### OpenStreetMap Data (`map.osm`)
 
-The input file, `map.osm`, is an XML-based language containing geographical features identified by volunteers. Each feature is defined by **Key/Value** pairs (e.g., `<tag k='highway' v='primary'/>`).  Map.osm is obtained by going to the OpenStreetMaps website, finding the location of interest, and using the website's Export function.  Geographically OpenStreetMap uses WGS 84 coordinates.   An excellent alternative is to use the Overpass API, which is used in the Utility programs to download a map.osm of the area of interest you provide (also in WGS 84 coordinates).  
+* The input file, `map.osm`, is an XML-based language containing geographical features identified by volunteers. Each feature is defined by **Key/Value** pairs (e.g., `<tag k='highway' v='primary'/>`).  Map.osm is obtained by going to the OpenStreetMaps website, finding the location of interest, and using the website's Export function.  Geographically OpenStreetMap uses WGS 84 coordinates.   An excellent alternative is to use the Overpass API, which is used in the Utility programs to download a map.osm of the area of interest you provide (also in WGS 84 coordinates).  
 
-The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.  In the next version, I will be adding a new command for stroke-based objects (roads, paths, highways, railways, waterways) called 'clipper-mode': either 'default' or 'ubreakable'.  This is to process intersections and insert breaks in the line segments to prevent overlaps.  'clipper-mode' is only valid with stroke objects (line segments). 
+* The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.  In the next version, I will be adding a new command for stroke-based objects (roads, paths, highways, railways, waterways) called 'clipper-mode': either 'default' or 'ubreakable'.  This is to process intersections and insert breaks in the line segments to prevent overlaps.  'clipper-mode' is only valid with stroke objects (line segments). 
 
 ### Licensing
 

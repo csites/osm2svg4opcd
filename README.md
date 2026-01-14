@@ -95,9 +95,9 @@ This project is currently a three-step process to generate a Clender-compatible 
 
 1. **Download your data:** Obtain your `map.osm` file (either manually via OpenStreetMap's "Export" function or using the provided utility scripts), ensuring its bounding box precisely matches the longitude and latitude coordinates of your terrain's Inner Lidar/DEM images (often determined in QGIS).
 
-2. **Configuration:** Ensure your styling is correct in `styles.json`.
+2. **Configuration:** Ensure your styling is correct in `styles.json`.  Example: Do you want to include buildings? Change a color?  Change the width of a cartpath?  Stroke-width is in meters. Change the z-order (who's on top?).
 
-3. **Scaling:** Set your desired map scale ratio in `scale_config.txt` (e.g., `1000` for $1:1000$, or a custom value for imperial units).
+3. Scaling default is for 1 meter real = 1 mm in inkscape (1 SVG unit).   Note: Yards, Feet or Inches could be scaled but it could break things. (conversion factors are in the code if you want to try). 
 
 ### Step 0: Acquire your map.osm
 

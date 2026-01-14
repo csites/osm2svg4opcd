@@ -1,0 +1,13 @@
+argparse
+json
+lxml
+math
+numpy
+os
+pyclipper
+rasterio
+shapely
+svgpathtools
+sys
+traceback
+xml

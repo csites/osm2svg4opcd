@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-osm2svg_v6.py takes map.osm and coverts it to out.svg with parameters set at the command-line and specified in styles.json.
-This version was updated to handle the the map.osm from the Overpass API as well as OpenStreetMap.  This version also
-scales and clips map.osm features to the the coordinates specified in the map.osm json download .   Additionally
-it sets the Default scale to be 1 meter = 1 mm in SVG units per OPCD recomendations.
+osm2svg_v7.py takes map.osm and coverts it to out.svg with parameters set at the command-line and specified in styles.json.
+This version was updated to handle the the map.osm from the Overpass API as well as export from OpenStreetMap.org  This version also scales and clips map.osm features to the the coordinates specified in the map.osm download.
+Additionally, it sets the Default SVG scale to be 1 meter = 1 mm of SVG units per OPCD recomendations.
 """
 
 import xml.etree.ElementTree as ET
@@ -63,6 +62,7 @@ MIN_LAT = 0.0
 MAX_LAT = 0.0
 MIN_LON = 0.0
 MAX_LON = 0.0
+SAFETY_INSET_MM = 8.0 
 CLIP_DISTANCE = 0.0  # Will hold the clip radius in METERS
 CLIP_MARGIN_MM = 0.0 # Will hold the kerf separation in MM (0.05)
 MAP_MIN_X = 0.0      # Projected X-coordinate of the map's left edge (in meters)
@@ -215,9 +215,9 @@ def generate_svg_header_from_bounds(min_lat, max_lat, min_lon, max_lon):
     return header, map_width_m, map_height_m, REAL_TO_SVG_SCALE    
 
 
-# ------------------------------------------------------------------------------------------------------------------
-# --- Coordinate & Geometry Transform FUNCTIONS B1. lon_lat_to_svg_xy(lon, lat)
-# ------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------
+# --- Coordinate & Geometry Transform FUNCTIONS B1. lon_lat_to_svg_xy(lon, lat) ---
+# ---------------------------------------------------------------------------------
 def lon_lat_to_svg_xy(lon, lat):
     """
     Transforms a single (lon, lat) coordinate into SVG (x, y) coordinates (in mm).
@@ -442,17 +442,21 @@ def smooth_corners_by_buffer(geometry, radius):
     if geometry.is_empty:
         return geometry
     try:
-        # Negative buffer to round convex corners and remove tiny spikes
-        # Positive buffer to restore size
-        return geometry.buffer(-radius, join_style=2).buffer(radius, join_style=2)
+        # Join_Style 1 = ROUND. This is the magic ingredient for filleting.
+        # We buffer OUT first to create the rounded "shoulders"
+        smoothed = geometry.buffer(radius, join_style=1, quad_segs=8)
+        smoothed = smoothed.buffer(-radius, join_style=1, quad_segs=8)
+        # Then buffer IN to bring the edges back to their original position
+        return smoothed
+
     except Exception as e:
         print(f"Warning: Corner smoothing failed: {e}")
         return geometry # Return original geometry if operation fails
 
 
-# ------------------------------------------------------------------------------------------------------------------
-# --- OSM Data & Geometry Processing FUNCTIONS C5. convert_stroke_to_path(way_coords, stroke_width, attrs, radius)
-# ------------------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------------
+# -- OSM Data & Geometry Processing FUNCTIONS C5. convert_stroke_to_path(way_coords, stroke_width, attrs, radius) -
+# -----------------------------------------------------------------------------------------------------------------
 def convert_stroke_to_path(way_coords, stroke_width, attrs, radius):
     """
     Calculates the filled polygon geometry from the line segments using Shapely buffer.
@@ -460,23 +464,35 @@ def convert_stroke_to_path(way_coords, stroke_width, attrs, radius):
     if len(way_coords) < 2:
         return None
     
-    # 1. Create a Shapely LineString from the clipped projected coordinates
     line = LineString(way_coords)
-    
-    # 2. Calculate the buffer radius (half the stroke width)
     radius = stroke_width / 2.0
+    linecap = attrs.get('stroke-linecap', 'butt')
+
+    if linecap == 'smooth':
+        # 1. Use ROUND cap style. This makes the road a "pill" shape.
+        # quad_segs=8 ensures the curve has enough points for Blender.
+        poly = line.buffer(
+            radius, 
+            cap_style=sg.CAP_STYLE.round, 
+            join_style=sg.JOIN_STYLE.round,
+            quad_segs=8
+        )
+        
+        # 2. Optional: The "Fillet Trick"
+        # If you want extra-smooth internal corners, we do the buffer dance.
+        # Using a radius slightly larger than 0.1 (like 0.5) makes it more visible.
+        smooth_factor = 0.5 
+        return poly.buffer(smooth_factor, join_style=sg.JOIN_STYLE.round).buffer(-smooth_factor)
     
-    # 3. Buffer the line to create a filled polygon
-    # cap_style=2 (Square) and join_style=3 (Bevel) are CRITICAL 
-    # to prevent internal corner filling and round ends.
+    # 3. Default behavior for non-smooth features
+    # Square Cap (2) and Bevel Join (3) keep things sharp and geometric.
     poly = line.buffer(
-        radius, 
-        cap_style=2,  # Square Cap
-        join_style=3  # Bevel Join (This is the fix for "filling holes" in corners)
+        radius,  
+        cap_style=2,  
+        join_style=3  
     )
     
     return poly
-
 
 # --------------------------------------------------------------------------------------------------
 # --- Clipping and Optimization FUNCTIONS D1. calculate_derived_clipping_constants(all_features) ---
@@ -876,187 +892,113 @@ def clip_conditional_intersections(all_features):
 # --- Clipping and Optimization FUNCTIONS D5. z_order_clip_and_finalize(all_features) ---
 # ---------------------------------------------------------------------------------------
 def z_order_clip_and_finalize(all_features):
-    """
-    Handles final feature preparation:
-    1. Converts LineStrings marked 'stroke_to_path' into Polygons (buffering).
-    2. Clips lower-Z polygons against higher-Z polygons (Z-order cleanup), 
-       applying CLIP_MARGIN for separation.
-    3. Applies optional smoothing and simplification.
-    
-    Returns a single list of final, clean features ready for SVG generation.
-    """
-    
-    # 1. Separate features into those that are polygons/will become polygons, 
-    #    and simple LineStrings that are ready to draw.
-    
     final_features_to_draw = []
     polygon_features_for_zorder = []
     
+    # 1. PROCESS: Buffering (Lines to Polygons)
     for feature in all_features:
-        if not isinstance(feature, dict) or 'shape' not in feature:
-            continue
-            
         shape = feature['shape']
         style_data = feature['style_data']
         
         if isinstance(shape, sg.LineString) and feature.get('requires_stroke_to_path'):
-            # A. PROCESS: Convert stroke-to-path (Buffering)
             stroke_width = float(style_data['attrs'].get('stroke-width', 1.0))
-            
-            # Use convert_stroke_to_path utility
+            # Buffering happens here - this creates the 'pill' shape
             current_poly = convert_stroke_to_path(
                 shape.coords,
                 stroke_width,
                 style_data['attrs'],
-                0.0 # radius/kerf parameter is often 0.0 here since we handle kerf 
-                    # during Z-order clip or line clip.
+                0.0 
             )
-            
             if current_poly and not current_poly.is_empty:
-                # Update the feature's shape to the new Polygon/MultiPolygon
-                feature['shape'] = current_poly 
+                feature['shape'] = current_poly  
                 polygon_features_for_zorder.append(feature)
-        
         elif isinstance(shape, (sg.Polygon, sg.MultiPolygon)):
-            # B. COLLECT: Original area features or complex multi-part geometry
             polygon_features_for_zorder.append(feature)
-            
         elif isinstance(shape, sg.LineString):
-            # C. COLLECT: Simple line features (polylines not marked stroke-to-path)
-            # These are already clipped at intersections (Pass 2, Step 1) and are ready.
             final_features_to_draw.append(feature)
-            
-        # Ignore other geometry types (Points, MultiPoints, etc.)
 
-    # 2. Apply Z-Order Polygon Cleaning
-    final_polygon_features = []
-    # Sort polygons by Z-order (lowest Z-order first) for sequential clipping
+    # 2. PROCESS: Z-Order Precedence Clipping
+    # (This ensures higher-Z objects cut holes in lower-Z objects)
     sorted_polygons = sorted(polygon_features_for_zorder, key=lambda f: f['style_data']['z-order'])
+    clip_margin = CLIP_MARGIN_MM / MM_PER_METER 
     
-    # Define a small margin for clipping (kerf/separation)
-    clip_margin = CLIP_MARGIN_MM / MM_PER_METER # Convert to meters
-    
-    print(f"INFO: Applying Z-order clipping to {len(sorted_polygons)} polygon features with margin {CLIP_MARGIN_MM:.3f} mm...")
-
+    processed_polygons = []
     for current_feature in sorted_polygons:
         current_poly = current_feature['shape']
         current_z = current_feature['style_data']['z-order']
         
-        # Clip the current polygon against all previously processed polygons that have a HIGHER Z-order.
-        for prev_feature in final_polygon_features:
+        for prev_feature in processed_polygons:
             prev_z = prev_feature['style_data']['z-order']
-
-            # If the PREVIOUS feature (prev_z) should clip the CURRENT feature (current_z)
             if prev_z > current_z:
                 clip_shape = prev_feature['shape']
-                
                 if not clip_shape.is_empty and current_poly.intersects(clip_shape):
                     try:
-                        # Apply a small buffer to the clipping shape to create a clean gap/margin
                         buffered_clip_shape = clip_shape.buffer(clip_margin, join_style=2)
                         current_poly = current_poly.difference(buffered_clip_shape)
-                    except Exception as e:
-                        # Fallback to clipping without margin if buffering fails
-                        # print(f"Warning: Buffer/Difference failed (Z-order clip): {e}")
+                    except:
                         current_poly = current_poly.difference(clip_shape)
-                        
-                    # Exit the inner loop if the current polygon is now empty
-                    if current_poly.is_empty:
-                        break 
-                        
-        # 3. Apply Simplification and Smoothing
-        if not current_poly.is_empty:
-            try:
-                # Apply Smoothing (fillet operation)
-                if FILLET_RADIUS > 0:
-                    current_poly = smooth_corners_by_buffer(current_poly, FILLET_RADIUS)
-                
-                # Apply Simplification
-                if SIMPLIFY_TOLERANCE > 0:
-                    current_poly = current_poly.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
-            except Exception as e:
-                print(f"Warning: Simplification/Smoothing failed for feature {current_feature.get('id', 'N/A')}: {e}")
-                pass # Continue without simplifying
-
-            if not current_poly.is_empty:
-                current_feature['shape'] = current_poly
-                final_polygon_features.append(current_feature)
-
-    # 4. Combine all cleaned features (simple lines + final polygons)
-    final_features_to_draw.extend(final_polygon_features)
-    
-    return final_features_to_draw
-
-
-# ------------------------------------------------------------------------------------------------------------------
-# --- Clipping and Optimization FUNCTIONS D6. ilter_features_by_spatial_condition(all_features, target_polygons) ---
-# ------------------------------------------------------------------------------------------------------------------
-def filter_features_by_spatial_condition(all_features, target_polygons):
-    """
-    Filters features, specifically buildings, based on a style-defined 
-    'distance-from' constraint relative to a set of target polygons (e.g., golf courses).
-    
-    A building is kept ONLY if its entire geometry is contained within the target 
-    geometry or the target geometry buffered by the 'distance-from' value (in meters).
-    """
-    filtered_features = []
-    buildings_included_count = 0     
-    # 1. Create a Union of all target polygons (Golf Courses)
-    if not target_polygons:
-        # If no target exists, no filtering occurs.  Return all features. 
-        return all_features
         
+        # 3. PROCESS: Smoothing (Filleting)
+        # CRITICAL: We smooth the corners AFTER z-clipping but BEFORE the boundary cut
+        if not current_poly.is_empty:
+            if FILLET_RADIUS > 0:
+                current_poly = smooth_corners_by_buffer(current_poly, FILLET_RADIUS)
+            if SIMPLIFY_TOLERANCE > 0:
+                current_poly = current_poly.simplify(SIMPLIFY_TOLERANCE, preserve_topology=True)
+            
+            current_feature['shape'] = current_poly
+            processed_polygons.append(current_feature)
+
+    # 4. FINAL STEP: The "Guillotine" (Boundary Clip)
+    # We combine everything and chop it at the 8mm line
+    final_features_to_draw.extend(processed_polygons)
+    safe_zone = sg.box(*CLIP_BBOX)
+    
+    final_output = []
+    for feature in final_features_to_draw:
+        if feature['shape'] and not feature['shape'].is_empty:
+            # This 'shaves' the rounded ends exactly at the safety line
+            feature['shape'] = feature['shape'].intersection(safe_zone)
+            if not feature['shape'].is_empty:
+                final_output.append(feature)
+            
+    return final_output
+
+
+# -----------------------------------------------------------------------------------------------------------------
+# -- Clipping and Optimization FUNCTIONS D6. filter_features_by_spatial_condition(all_features, target_polygons) --
+# -----------------------------------------------------------------------------------------------------------------
+def filter_features_by_spatial_condition(all_features, target_polygons):
+    filtered_features = []
+    if not target_polygons: return all_features
     union_target = unary_union(target_polygons)
     
-    # 2. Iterate through all features
     for feature in all_features:
         style_data = feature['style_data']
         shape = feature.get('shape')
+        osm_tag = feature.get('osm_tag', '').lower()
+        distance_str = style_data['attrs'].get('distance-from')
         
-        # Keep non-building features or features without a shape
-        if feature.get('osm_tag') != 'building' or shape is None:
-            filtered_features.append(feature)
-            continue
-            
-        distance_meters_str = style_data['attrs'].get('distance-from')
-        
-        # Keep buildings if they don't have a 'distance-from' constraint
-        if distance_meters_str is None:
+        if distance_str is None or shape is None:
             filtered_features.append(feature)
             continue
 
-        try:
-            distance_meters = float(distance_meters_str)
-        except ValueError:
-            # Invalid distance value, keep it as a fallback
-            filtered_features.append(feature)
-            continue
-
-        # --- Spatial Inclusion Check ---
-        distance_shapely_units = distance_meters        
-        # 3. Create the necessary buffer around the golf course union
-        # The buffer defines the maximum inclusion zone.
-        inclusion_zone = union_target.buffer(distance_shapely_units)
+        dist = float(distance_str)
+        inclusion_zone = union_target if dist == 0 else union_target.buffer(dist)
         
-        # 4. Check if the ENTIRE building is contained within the inclusion zone.
-        # This satisfies the rule: "If the distance somehow clipped the building polygon 
-        # it would exclude it."
-        
-        # Handle MultiPolygon shapes for buildings if necessary
-        if isinstance(shape, (sg.Polygon, sg.MultiPolygon)):
-            # New line inside the D6 loop, after distance_meters is calculated:
-            # print(f"DEBUG D6: Processing feature {feature.get('id', 'N/A')}. Distance check: {distance_meters} units.")
-
-            # Find the minimum distance from this building to the target
-            min_distance_to_target = shape.distance(union_target)
-            # print(f"DEBUG D6: Min distance to golf course: {min_distance_to_target:.2f} units.")
-
+        # CLIP ROADS, FILTER BUILDINGS
+        if any(k in osm_tag for k in ['highway', 'road', 'street', 'path']):
+            if shape.intersects(inclusion_zone):
+                clipped = shape.intersection(inclusion_zone)
+                if not clipped.is_empty:
+                    feature['shape'] = clipped
+                    filtered_features.append(feature)
+        elif osm_tag == 'building':
             if shape.intersects(inclusion_zone):
                 filtered_features.append(feature)
-                buildings_included_count += 1 
-        # Else: The building is excluded only if it is completely outside the buffer zone.            
+        else:
+            filtered_features.append(feature)
 
-    print(f"DEBUG: Spatially filtered: {buildings_included_count} 'building' features included in the buffer zone.")
     return filtered_features
 
 
@@ -1085,35 +1027,30 @@ def generate_svg_elements(features_to_draw):
             
         tag = 'path' 
         final_attrs = style_data['attrs'].copy()
-        is_buffered_road = feature.get('requires_stroke_to_path', False)
+        if final_attrs.get('stroke-linecap') == 'smooth':
+            final_attrs.pop('stroke-linecap', None)
         
+        is_buffered_road = feature.get('requires_stroke_to_path', False)
         # Check if the final geometry is a Polygon (including those created by stroke-to-path)
         if isinstance(shape, (Polygon, MultiPolygon)):
             if is_buffered_road:
-                # 1. Road Polygons MUST be drawn with a fill, not an outline.
-                #    We use the original stroke color as the new fill color.
                 if 'stroke' in final_attrs:
                     final_attrs['fill'] = final_attrs.get('stroke')
                 
-                # 2. Suppress the stroke to eliminate the "double line" issue.
                 final_attrs['stroke'] = 'none'
                 final_attrs['stroke-width'] = '0'
                 
-            # Suppress the stroke for filled areas to remove the "double line" effect,
-            # but only if a fill color is present.
             if final_attrs.get('fill', 'none') not in ('none', 'transparent'):
                 final_attrs['stroke'] = 'none'
                 final_attrs['stroke-width'] = '0'
 
         # Convert the (potentially modified) attributes dictionary back to a string
         attrs = ' '.join(f'{k}="{v}"' for k, v in final_attrs.items())
+        
         clean_tag = feature['tag'].replace(':', '-')
-        data_tag = feature['tag']  
         unique_id = feature.get('id', feature.get('base_id', 'f-anon'))
-
-#        element_id = feature.get("base_id", "f-anon")
         final_element_id = f"{clean_tag}-{unique_id}"        
-#        element = f'<{tag} id="{final_element_id}" data-tag="{data_tag}" d="{d_attr}" {attrs} />'
+
         element = f'<{tag} id="{final_element_id}" d="{d_attr}" {attrs} />'
         svg_elements.append(element)
          
@@ -1359,7 +1296,7 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
 def main():
     """The main function to execute the conversion process."""
 
-    global nodes, ways, outputFile, CLIP_BBOX, SVG_WIDTH_MM, SVG_HEIGHT_MM
+    global nodes, ways, outputFile, CLIP_BBOX, SVG_WIDTH_MM, SVG_HEIGHT_MM, SAFETY_INSET_MM
     
     args = parse_arguments()
     
@@ -1441,8 +1378,8 @@ def main():
         
     svg_header, map_width_m, map_height_m, REAL_TO_SVG_SCALE = generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon)
         
-    # Define the bounding box for clipping (using calculated SVG size)
-    CLIP_BBOX = (0, 0, SVG_WIDTH_MM, SVG_HEIGHT_MM)
+    # Define the bounding box for clipping (using calculated SVG size - SAFETY_INSET_MM) 
+    CLIP_BBOX = (SAFETY_INSET_MM, SAFETY_INSET_MM, SVG_WIDTH_MM - SAFETY_INSET_MM, SVG_HEIGHT_MM - SAFETY_INSET_MM)
 
     # Load nodes and ways into memory
     nodes = {node.get('id'): (float(node.get('lon')), float(node.get('lat')))
@@ -1474,15 +1411,12 @@ def main():
         document_pass2 = document
         
     for way_id, way_data in ways.items():
-        
-        way_refs = way_data['refs']
         way_tags = way_data['tags']
-
         style_data = None
         feature_tag = None
         
-        # Find the appropriate style data
-        for tag_key, tag_value in way_tags.items(): # Iterate over the new helper for style matching
+        # 1. Style Matching
+        for tag_key, tag_value in way_tags.items():
             searchtag = f"{tag_key}.{tag_value}"
             if searchtag in styles:
                 style_data = styles[searchtag]
@@ -1496,83 +1430,72 @@ def main():
         if style_data is None:
             continue
 
+        # 2. Geometry Retrieval & Initial Visibility Check
         way_coords_unclipped = get_way_coordinates(way_id)
         if len(way_coords_unclipped) < 2:
             continue
-                  
-        # Clip the projected coordinates to the SVG viewbox
-        way_coords = clip_polyline_to_bounds(way_coords_unclipped, *CLIP_BBOX)
-        if len(way_coords) < 2:
+        
+        current_line_string = sg.LineString(way_coords_unclipped)
+        # We check against the full SVG viewbox first to see if it's even relevant
+        full_viewbox = sg.box(0, 0, SVG_WIDTH_MM, SVG_HEIGHT_MM)
+        if not current_line_string.intersects(full_viewbox):
             continue
 
-        is_closed_way = (len(way_coords_unclipped) >= 2) and (way_coords_unclipped[0] == way_coords_unclipped[-1])
+        # 3. Determine Feature Type
         is_stroke_to_path = style_data.get('stroke_to_path', False)
         stroke_width = float(style_data['attrs'].get('stroke-width', 0.0))
-        current_shape = None
-        
         is_line_feature = is_stroke_to_path or (stroke_width > 0.0)
+        is_closed_way = (way_coords_unclipped[0] == way_coords_unclipped[-1])
+
+        current_shape = None
+        requires_line_clip = False
+
+        # --- CASE A: LINE FEATURES (Roads, Paths, Fences) ---
         if is_line_feature:
-            current_shape = sg.LineString(way_coords)
-            if current_shape and not current_shape.is_empty:
-                # 1. Start with the tag used to match the style (e.g., 'leisure.golf_course' or 'building.residential')
-                safe_tag = feature_tag.replace('.', '-').replace('=', '-')
-                descriptive_base_id = f"{safe_tag}-{way_id}"  # Build a descriptive Id.
-                final_osm_tag = feature_tag.split('.')[0] if '.' in feature_tag else feature_tag
-    
-                # 2. Check the raw tags for the presence of the key 'building'. 
-                # This ensures any building (like building=yes) gets the 'building' tag, 
-                # even if it was styled by a sub-tag.
-                if way_tags.get('building') is not None:
-                    final_osm_tag = 'building'
+            # IMPORTANT: Keep the UNCLIPPED version. 
+            # This allows C5 to 'smooth' the corners even at the map edges.
+            current_shape = current_line_string 
+            requires_line_clip = True
 
-                # GOLF COURSE DETECTION & COLLECTION (Use final_osm_tag)
-                is_golf_course = (final_osm_tag == 'leisure.golf_course')
-                if is_golf_course:
-                    golf_course_polygons.append(current_shape)
-
-                all_shapely_features.append({
-                    'shape': current_shape,
-                    'tag': feature_tag,
-                    'id': way_id,
-                    'base_id': descriptive_base_id, 
-                    'osm_tag': final_osm_tag,
-                    'style_data': style_data,
-                    'requires_line_clip': True,
-                    'requires_stroke_to_path': is_stroke_to_path 
-                })
-                
+        # --- CASE B: AREA FEATURES (Buildings, Bunkers, Greens) ---
         elif is_closed_way and ('fill' in style_data['attrs'] and style_data['attrs']['fill'] not in ('none', 'transparent')):
-            # --- AREA FEATURE (Polygon - Needs Z-order cleanup in PASS 2) ---
             try:
-                current_shape = sg.Polygon(way_coords)
+                # Polygons are clipped to the 8mm safety box immediately 
+                # because they don't need 'extra length' for end-caps.
+                way_coords_clipped = clip_polyline_to_bounds(way_coords_unclipped, *CLIP_BBOX)
+                if len(way_coords_clipped) >= 3:
+                    current_shape = sg.Polygon(way_coords_clipped)
+                    requires_line_clip = False
             except Exception as e:
                 print(f"Warning: Could not create Polygon for way {way_id}: {e}")
                 continue
         
-            if current_shape and not current_shape.is_empty:
-                # 1. Start with the tag used to match the style
-                safe_tag = feature_tag.replace('.', '-').replace('=', '-')
-                descriptive_base_id = f"{safe_tag}-{way_id}"  # Build a descriptive Id.
-                final_osm_tag = feature_tag.split('.')[0] if '.' in feature_tag else feature_tag
+        # 4. Final Feature Packaging
+        if current_shape and not current_shape.is_empty:
+            # Build descriptive ID
+            safe_tag = feature_tag.replace('.', '-').replace('=', '-')
+            descriptive_base_id = f"{safe_tag}-{way_id}"
+            
+            # Determine OSM Category for D6 Filtering
+            final_osm_tag = feature_tag.split('.')[0] if '.' in feature_tag else feature_tag
+            if way_tags.get('building') is not None:
+                final_osm_tag = 'building'
 
-                # 2. Check the raw tags for the presence of the key 'building'. 
-                if way_tags.get('building') is not None:
-                    final_osm_tag = 'building' # <-- Correctly tag as 'building'
-                    
-                if final_osm_tag == 'leisure.golf_course' or way_tags.get('leisure') == 'golf_course':
-                    golf_course_polygons.append(current_shape)
+            # Collect Golf Courses for the Building Clipper (D6)
+            if final_osm_tag == 'leisure.golf_course' or way_tags.get('leisure') == 'golf_course':
+                golf_course_polygons.append(current_shape)
 
-                all_shapely_features.append({
-                    'shape': current_shape,
-                    'tag': feature_tag,
-                    'id': way_id,
-                    'base_id': descriptive_base_id, 
-                    'osm_tag': final_osm_tag,
-                    'style_data': style_data,
-                    'requires_line_clip': True,
-                    'requires_stroke_to_path': is_stroke_to_path 
-                })
-
+            all_shapely_features.append({
+                'shape': current_shape,
+                'tag': feature_tag,
+                'id': way_id,
+                'base_id': descriptive_base_id,  
+                'osm_tag': final_osm_tag,
+                'style_data': style_data,
+                'requires_line_clip': requires_line_clip,
+                'requires_stroke_to_path': is_stroke_to_path  
+            })
+        
     # Filter out any non-dictionary objects (like stray strings or comments)
     cleaned_shapely_features = [f for f in all_shapely_features if isinstance(f, dict)]
     
@@ -1617,6 +1540,12 @@ def main():
         print(f"DEBUG: Found {building_count_before_filter} features explicitly tagged as 'building' for filtering.")
 
         print(f"\nINFO: Applying spatial filtering to buildings based on {len(golf_course_polygons)} golf course areas...")
+        
+        # Identify how many roads/highways have a distance-from style
+        road_filter_count = sum(1 for f in all_shapely_features 
+                            if ('highway' in f.get('osm_tag', '') or 'road' in f.get('osm_tag', '')) 
+                            and 'distance-from' in f['style_data']['attrs'])
+        print(f"DEBUG: Found {road_filter_count} road features with distance-from constraints.")
         # NOTE: This new function D6 needs to be defined
         all_shapely_features = filter_features_by_spatial_condition(
             all_shapely_features, 

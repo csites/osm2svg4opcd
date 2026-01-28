@@ -1,24 +1,30 @@
 # osm2svg4opcd (v7.0)
 
 **OpenStreetMap to SVG Converter for Open Platform Course Design (OPCD)**
-    This is a complete rewrite of osm2svg_v5.py described earlier.  It is now called osm2svg_v7.py, where v6 was my development code.  It has undergone many changes to it since v5.  First lets review the command line help.
+
+This is a complete rewrite of the osm2svg_v5.py tool. Version 7 (v7) represents the stable release of the development code previously referred to as version 6. It includes significant architectural changes to support the modern OPCD workflow.
 
 ![Description](./out.jpg)
 
-* To use this program, here is the typical workflow. 1) Follow the OPCD workflow to build your Inner and Outer Lidar / DEM elevation maps in QGIS.  Google "OPCD None to Done" (V4 Toolset) and download any programs you need, QGIS, Inkscape, etc. Please validate that your Inner and Outer QGIS Layers are setup correctly, as they are used to define the borders of the area we work with.  Next,  use QGIS to export a Hillshade image of your course using the 'Calculate from: Layer'. It defines the coordinates from your Inner or Outer layers.  The exported "Geotiff" Hillshade image (.tif), includes all of the coordinates information of the course area you're trying to build.   Typically your Hillshade image will match the 'Inner' layer, and we can use the Utilities/Download_MapOSM.py to download the map.osm (an XML OpenStreetMap of your course and the surrounding area).  You can also use Google, Bing exports from QGIS as input into 'utilities/Download_MapOSM.py'.  If your Hillshade, Google, Bing, DEM, export was clipped to your inner/outer layer then run,
- 
-``` python3 ./Utilities/Download_MapOSM --styles-file styles.json Hillshade.tif -D```
+# Typical Workflow
+To use this program effectively, follow the standard OPCD setup, specifically the instructions provided in the "None to Done" V4 Toolset document.  Download any prerequisit programs you need, QGIS, Inkscape, and optionally your other tools.  As instructed in the "None to Done" document, build your Inner and Outer Lidar/DEM elevation maps in QGIS.  These layers define the geographic boundaries of your project.
 
-This will build the 'map.osm' needed for the area defined with the Inner/Outer area masks you defined. If you like, you can also use the OpenStreetMap.org website to lookup your course and use the 'Export' button to create the map.osm.  Note: in the later you may need to adjust the window size manually using Longitude and Latitude adjustments, which is in generic WGS84 coordinates.  The OpenStreetMap.org website has the advantage that the golf course is searchable, and if you feel up to it, you can even contribute a little time to updating or adding features.     
+Export from QGIS: Export a Hillshade and/or Aerial image (or XYZ Tiles google, bing) as a GeoTIFF (.tif). Ensure you use the "Calculate from: <Layer>" and select your Inner or Outer layer during export.  The resulting GeoTIFF will contain the coordinate metadata needed for alignment and clipping.
 
-``` Utilities/Download_MapOSM.py [-h] --styles-file STYLES_FILE [--crs CRS] [-D] [-O] data_files [data_files ...] ```
-where "data_files" are your laz/dem tiles, or a geotiff image like hillshade, Google or Bing exported from QGIS.  You may supply multiple data_files, and it will stitch them into 1 area and download the map.osm from it.  
+Acquire OSM Data: Use the provided utility: ``` python Utilities/Download_MapOSM.py --styles-file styles.json Hillshade.tif -D``` This automatically downloads a map.osm file precisely clipped to the bounds of your GeoTIFF.
 
-* If you have the area defined by Longitude Latitude ranges like the OpenStreetMap.org Export, you can use this utility to pull the map.osm for the area.  ```Utilities/Overpass_downloader.py <lat1> <lon1> <lat2> <lon2> ```
+Alternative Acquisition: You can also use the website OpenStreetMap.org and select the "Export" button, though you may need to manually adjust the WGS84 Longitude and Latitude coordinates to match your project area.
 
 
-* With the map.osm file, styles.json you can build your SVG mapping of the course and surrounding areas.  map.osm is a standard XML format and can be viewed in an editor.
-  
+* To use this program here is the typical workflow.  Follow the OPCD workflow to build your Inner and Outer Lidar / DEM elevation maps in QGIS.  Google "OPCD None to Done" (V4 Toolset). Please make sure you get your Inner and Outers setup correctly as it used to define the borders of the area we work with.    Use QGIS to export a Hillshade image of your course using 'Layer' to define coordinates from your Inner or Outer layer.  This can be helpfull because if you export your Hillshade as a "Geotiff" image (.tif), it includes all of the coordinates for the course your trying to build.   With you Hillshade image typically matched to you 'Inner' layer, we can us then Utilities/Download_MapOSM.py to download map.osm (an XML OpenStreetMap image).  You can also do the same as Hillshade with the QGIS XYZ Tile tool for Google, Bing and even OpenStreetMap.  Sadly that OpenStreetMap query is in a completely wrong format which is why this program exists.   If you Hillshade, Google, Bing, DEM, export was clipped to your inner/outer layer the run;  "Utilities/Download_MapOSM --styles-file styles.json Hillshade.tif -D".   This will build the map.osm we need of the area in the Inner/outer area defined by your geotiff image; hillshade.tif   You can also use the OpenStreetMap.org website to lookup your course and use the 'Export' button to create the map.osm.  Note; in the later you may need to adjust the window size manually with Longitude and Latitude adjustments to the WGS84 coordinates.  The OpenStreetMap.org website has the approach that the golf course is searchable and if you feel up to it, you can contribute some time to updating or adding features not described.     
+
+* ``` Utilities/Download_MapOSM.py [-h] --styles-file STYLES_FILE [--crs CRS] [-D] [-O] data_files [data_files ...] ```
+(Where "data_files" are your laz/dem tiles, or a geotiff image from QGIS)
+
+* If you have the area defined by Longitude, latitude ranges you can use this to pull the map.osm file for that area. ```Utilities/Overpass_downloader.py <lat1> <lon1> <lat2> <lon2> ```
+
+
+
 ```
 osm2svg4opcd$ python ./osm2svg_v7.py --help
  usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
@@ -44,14 +50,15 @@ osm2svg4opcd$ python ./osm2svg_v7.py --help
 
 ## CHANGES in v7.
 
-* Change 1) styles.json has been expanded to include "clipper_mode": "unbreakable" or "default", which is used in the program's clip logic. Clipping_mode is for cartpaths, road, highways, etc defined by lines.  If they intersect or cross and are of a different type, one of the elements should be clipped, which might be controlled by z-order (the priority of the layering).  However, some roads and highways are "unbreakable" and regardless of z-order (the z-order preference for our features).  Railroad tracks are one example of a feature that should be unbreakable.  Waterways might be another.
-*  Change 2) Buildings are a special case entry in our styles.json.  It's optional. If you require the outline of a building floor area in your SVG using the building style.  The building style has one special option, the 'distance-from', which represents the number of meters from the golf course boundary to include housing outlines (defined by the leisure.golf_course style element).  Set distance-from to 0, and no buildings except those on the course are included.  
-* Change 3).  We have organized and named all of the Inkscape 'Layers and Objects' to be labeled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML <node id="123456789') and the segment number corresponds to the clipped segment from any intersections or line breaks.
-* Change 4). Added background images.  In the OPCD workflow, with QGIS create and inside and outside area of interest from our lidar images and import a QGIS 'XYZ tile' from Hillshade, Bing, Google, or even OpenStreetmap (not the one we use unfortunately, that would have made life so much easier).  We can then export those QGIS layers as tiffs and remap the coordinate system to a WGS84 form that should match our map.osm area of interest.   You can import these into the SVG as a background image.   For example, one can globally change the global opacity of the SVG streets to let the background show through slightly.   This allows trees, bushes, and land features to show through our color masks.  Very useful for Hillshade images.
-* Change 5) We do some slight rounding of corners.  Many of the cartpaths and courses features from OpenStreetMap have been simplified to reduce the number of line segments near curves, creating points and kinks.  This program smooths them slightly.  
+* Change 1) styles.json has been expanded to include "clipper_mode": "unbreakable" or "default", which is used in the program's clip logic. Clipping_mode is for cartpaths, road, highways etc.  Typically when a cartpath, waterway, crosses or intersect,  we need to decide how to manage the interesection.  Typically this is managed by the "z-order" styles.json entry where the higher z-order remains unclipped and the lower "z-order" is clipped.   Some roads and highways regardless of z-order, are "unbreakable".   Railroad tracks are one example of a feature that should be unbreakable.  Waterways might be another.
+* Change 2) buildings are a special case entry in our styles.json.  It's optional, but if you want to outline the building floor area in your SVG using the building style.  The building style has one special option 'distance-from' which represents the number of meters from the golf course boundry (as defined in the leisure.golf_course style) to include housing outlines in your svg.  Set distance-from to 0 and no buildings except those on the course are identified.  
+* Change 3).  We have organized and named all of the Inkscape 'Layers and Objects' to be labled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML <node id="123456789') and the sement number corresponds to the clipped segment from any intersections.
+* Change 4). Added background images.  In the OPCD workflow, with QGIS create and inside and outside area of interest from our lidar images and can import an QGIS 'XYZ tile' from Hillshade, Bing, Google and OpenStreetmap (not the one we use unfortunately, it would have made life so much easier).  We can then export those QGIS layers as tiffs and remap the coordinate system the a WGS84 form that should match our map.osm area of interest.   You can the import these into the svg as a background image.   Then for example, one can globally change the global opacity of the SVG streets to let the background show through slightly.   This shows trees, bushes and land features to show throught.  Very useful for Hillshade images.
+* Change 5) We do some slight rounding of corners.  Many of the cartpaths and courses features from OpenStreetMap have simplified and reduced the number of linesegments near curves creating points and kinks in things like cartpaths, greens, fairways.   This program atempts to smooth them.  
 
 
-* The initial goal of this program was to take a golf course from OpenStreetMap (https://openstreetmap.org) and convert it to an Inkscape image (SVG) that could pass the ** GSPro ** course building workflow ** OPCD ** to get the course into ** Blender **, using an OPCD tool called the "Clender"  (A Cloud based conversion too.l that takes a SVG and converts to Blender).  The tools presented here could have many more uses besides golf-course development, for example, to train AIs like SAM (Meta's Segment Anything Model), where key features of OpenStreetMap are translated into an SVG image, and the features need to be labeled.
+* The initial goal of this program was to take a golf course from OpenStreetMap (https://openstreetmap.org) and
+convert it to an Inkscape image (SVG) that could pass the ** GSPro ** course building workflow ** OPCD ** to get the course into ** Blender **, using an OPCD tool called the "Clender".   However, this tool could have many more uses where key features of OpenStreetMap need to be translated into a SVG image.
 
 
 ## 🚀 Key Features
@@ -76,7 +83,7 @@ This tool processes raw OpenStreetMap (`.osm`) data and converts it into a scale
 
 * The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.  In the next version, I will be adding a new command for stroke-based objects (roads, paths, highways, railways, waterways) called 'clipper-mode': either 'default' or 'unbreakable'.  This is to process intersections and insert breaks in the line segments to prevent overlaps.  'clipper-mode' is only valid with stroke objects (line segments). 
 
-* Here is an example picture of the Seneca Golf course taken from Inkscape with a Hillshade background image and the OpenStreetMap overlay with a global opacity of about 50% on the SVG portion.
+* Here is an exmple picture of Seneca Golf course taken from Inkscape with a Hillshade background image and the openstreetnmap overlay with a global opacity of about 50% on the SVG portion.
 ![Description](./out_hillshade.jpg)
 
 
@@ -102,11 +109,11 @@ This project is currently a three-step process to generate a Clender-compatible 
 
 2. **Configuration:** Ensure your styling is correct in `styles.json`.  Example: Do you want to include buildings? Change a color?  Change the width of a cartpath?  Stroke-width is in meters. Change the z-order (who's on top?).
 
-3. Scaling default is for 1 meter real = 1 mm in Inkscape (1 SVG unit).   Note: Yards, Feet or Inches could be scaled, but it could break things. Conversion factors are in the python code if you would like to try. 
+3. Scaling default is for 1 meter real = 1 mm in inkscape (1 SVG unit).   Note: Yards, Feet or Inches could be scaled but it could break things. (conversion factors are in the code if you want to try). 
 
 ### Step 0: Acquire your map.osm
 
-Use a the Utility Download_MapOSM and provide it with an exported tif (geotif) image from QGIS of you Inner map.   Here, Hillshade works well.
+Use a the Utility Download_MapOSM and provide it with an exported tif (geotif) image from QGIS of you Inner map.   Here Hillshade works well.
 
 python Utilities/Download_MapOSM.py --styles-file styles.json ~/Projects/Seneca/QGIS/Overlays/Seneca_Hillshade_Inner.tif -D -O
 
@@ -122,7 +129,7 @@ Run the core conversion script. This generates the initial, clipped SVG file con
 python3 osm2svg.py
 
 
-* **Input:** `map.osm`, `styles.json`. **Optional Inputs: ** 'Geotiff image backgrounds'.
+* **Input:** `map.osm`, `styles.json`, `scale_config.txt`
 
 * **Output:** `out.svg` (The primary clipped map output)
 
@@ -139,16 +146,16 @@ python3 svg_points2path.py
 
 ### Step 3: (Optional and only if inset errors are reported.) Finalize for Inset Operations
 
-Run the optional bunker fix script if your `smoothed_out.svg` fails validation due to narrow or complex sandtrap shapes.  Probably not needed. This step widens and rounds bunker shapes that fail 'Clender' with an inset error.  
+Run the optional bunker fix script if your `smoothed_out.svg` fails validation due to narrow or complex sandtrap shapes.
 
-python3 fix_bunker_inset.py 
+python3 fix_bunker_inset.py
 
 
 * **Input:** `smoothed_out.svg`
 
 * **Output:** `final_smoothed_out.svg`
 
-### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary of the Inner/Outer layers.  Map.osm does not clip roads at boundaries, just at line breaks.     So this is used to match the SVG to the Inner/Outer layer from the QGIS stage of the OPCD processes.  Still a work in progress.  Known Bug: at the end caps of the paths for roads, cartpaths, and the like  are clipped square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.   You can do the same in Inkscape.
+### Step 4:  This step is optional but it is used to clip any SVG features that may extend out of the boundary.   It's used to match the SVG to the Inner elevation map from the QGIS stage of the OPCD processes.  Still a work in progress.  Known Bug: at the end caps of the paths for roads, cartpaths, and the like  are clipped square and may extend a few pixels outside of the boundry.  It's not noticable until zoomed in.
 
 python3 svg_clipper.py
 

@@ -82,85 +82,93 @@ def get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor=SMOOTH_TIGHTN
 
     return C1, C2
 
+
 def smooth_path_segments(original_path_segments, is_closed, tightness_factor=SMOOTH_TIGHTNESS_FACTOR):
     """
     Applies an Inkscape like "Make Segments Curves" and "Auto-Smooth" logic 
-    to a sequence of path segments.
+    to a sequence of path segments, while respecting rings and holes.
 
-    :param original_path_segments: A list of svgpathtools segment objects.
-    :param is_closed: Boolean indicating if the path is closed (start == end).
-    :return: A list of new, smoothed CubicBezier segments.
+    """
+    """
+    Applies Auto-Smooth logic while respecting sub-paths (rings/holes).
     """
     if not original_path_segments:
         return []
 
-    # 1. Conversion to CubicBezier (Manual Fix for Line objects)
-    cubic_segments = []
+    # --- STEP 1: Split segments into independent rings ---
+    rings = []
+    current_ring = []
+    
     for seg in original_path_segments:
-        if isinstance(seg, Line):
-            P1 = seg.start
-            P2 = seg.end
-            V = P2 - P1
-            C1 = P1 + V / 3.0
-            C2 = P2 - V / 3.0
-            cubic_segments.append(CubicBezier(P1, C1, C2, P2))
-        else:
-            # Assuming other types (like existing CubicBezier) are fine
-            cubic_segments.append(seg)
+        current_ring.append(seg)
+        # If the end of this segment meets the start of the current ring, it's a closed loop
+        # We use a tiny tolerance for float math (1e-4)
+        if abs(seg.end - current_ring[0].start) < 1e-4:
+            rings.append(current_ring)
+            current_ring = []
     
-    # 2. Node Extraction (P0, P1, P2, ... PN)
-    nodes = [seg.start for seg in cubic_segments]
-    nodes.append(cubic_segments[-1].end)
-    
-    final_segments = []
-    num_nodes = len(nodes)
-    
-    # Handle single-segment path: no smoothing possible, return the cubic segment directly
-    if num_nodes <= 2:
-        return cubic_segments
-        
-    # 3. Smoothing Loop (Iterate over all segments/nodes except the endpoints of an open path)
-    for j in range(num_nodes - 1):
-        P_i = nodes[j]          # Start of segment j
-        P_next = nodes[j+1]     # End of segment j
-        
-        # Determine P_prev (for node P_i smoothing)
-        if j == 0:
-            P_prev = nodes[-2] if is_closed else P_i
-        else:
-            P_prev = nodes[j-1]
-            
-        # Determine P_next_next (for node P_next smoothing)
-        if j == num_nodes - 2: # Last segment
-            P_next_next = nodes[1] if is_closed else P_next
-        else:
-            P_next_next = nodes[j+2]
+    # Catch any remaining segments (for open paths)
+    if current_ring:
+        rings.append(current_ring)
 
-        # --- C2_i: Outgoing handle from P_i (Start Control Point) ---
-        if is_closed or j > 0:
-            # Pass the tightness factor here:
-            _, C2_i = get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor) 
-        else:
-            # Handle for P0 (no change to the logic introduced in the previous fix)
-            C1_next_of_P1, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, tightness_factor)
-#            C2_i = C1_next_of_P1
-            C2_i = P_i + (P_next - P_i) * (tightness_factor / 3.0) 
-        # --- C1_next: Incoming handle to P_next (End Control Point) ---
-        if is_closed or j < num_nodes - 2:
-            # Pass the tightness factor here:
-            C1_next, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, tightness_factor)
-        else:
-            # Handle for P_N (no change to the logic introduced in the previous fix)
-#            _, C2_i_of_P_N_minus_1 = get_auto_smooth_controls(P_prev, P_i, P_next, SMOOTH_TIGHTNESS_FACTOR)
-#            C1_next = P_next - (C2_i_of_P_N_minus_1 - P_i)
-            C1_next = P_next - (P_next - P_i) * (tightness_factor / 3.0)
-            
-        # Create the new cubic segment
-        new_seg = CubicBezier(P_i, C2_i, C1_next, P_next)
-        final_segments.append(new_seg)
+    final_output_segments = []
 
-    # 4. Return the fully smoothed segments
-    return final_segments
+    # --- STEP 2: Smooth each ring independently ---
+    for ring in rings:
+        # Convert segments to basic CubicBezier placeholders
+        cubic_segments = []
+        for seg in ring:
+            if isinstance(seg, Line):
+                P1, P2 = seg.start, seg.end
+                V = P2 - P1
+                cubic_segments.append(CubicBezier(P1, P1 + V/3, P2 - V/3, P2))
+            else:
+                cubic_segments.append(seg)
+
+        # Extract nodes for this specific ring
+        nodes = [seg.start for seg in cubic_segments]
+        nodes.append(cubic_segments[-1].end)
+        
+        num_nodes = len(nodes)
+        # Check if the ring is actually closed (important for smoothing logic)
+        ring_closed = abs(nodes[0] - nodes[-1]) < 1e-4
+
+        if num_nodes <= 2:
+            final_output_segments.extend(cubic_segments)
+            continue
+
+        # Smoothing Loop for this specific ring
+        for j in range(num_nodes - 1):
+            P_i = nodes[j]
+            P_next = nodes[j+1]
+
+            # P_prev logic restricted to THIS ring
+            if j == 0:
+                P_prev = nodes[-2] if ring_closed else P_i
+            else:
+                P_prev = nodes[j-1]
+
+            # P_next_next logic restricted to THIS ring
+            if j == num_nodes - 2:
+                P_next_next = nodes[1] if ring_closed else P_next
+            else:
+                P_next_next = nodes[j+2]
+
+            # --- Calculate Handles ---
+            if ring_closed or j > 0:
+                _, C2_i = get_auto_smooth_controls(P_prev, P_i, P_next, tightness_factor)
+            else:
+                C2_i = P_i + (P_next - P_i) * (tightness_factor / 3.0)
+
+            if ring_closed or j < num_nodes - 2:
+                C1_next, _ = get_auto_smooth_controls(P_i, P_next, P_next_next, tightness_factor)
+            else:
+                C1_next = P_next - (P_next - P_i) * (tightness_factor / 3.0)
+
+            final_output_segments.append(CubicBezier(P_i, C2_i, C1_next, P_next))
+
+    return final_output_segments
+
 
 def apply_path_smoothing(svg_filepath):
     """

@@ -1,8 +1,11 @@
-# osm2svg4opcd (v7.0)
+# osm2svg4opcd (v9.0)
 
 **OpenStreetMap to SVG Converter for Open Platform Course Design (OPCD)**
 
-This is a complete rewrite of the osm2svg_v5.py tool. Version 7 (v7) represents the stable release of the development code previously referred to as version 6. It includes significant architectural changes to support the modern OPCD workflow.
+This is a large update of osm2svg_v7.py tool. Version 9 (v9) represents the stable release of the development code previously referred to as version 8. It includes significant architectural changes to support the modern OPCD workflow.  In this version we are takinging advantage of the new 'Clender' Beta mesher which does not need clips and cuts of cartpaths, corners are managed well.  We also do some smoothing of corners on the course features.  Tees, Green, Fairways, Sandtraps.   We maintain the out.svg measurements of 1mm SVG = 1 meter real.  We have developed some nice cut rules, so at interestions of like features (roads, streets, etc) the shapes are unioned.  If the interesection is of different features a cartpath to a road, the feature with a higher z-order take presidence and the lower z-order gets clipped (or gilotiened).  We also introduce a new styles.json entry called "clipper_mode" which can be either "unbreakable" or "default", which is used for structures nothing can clip, like railroads, creeks and the like.
+
+** New in V9. **
+Since we are using the WGS94 coordinates used by OpenStreetmap, our terrain.obj needs to be built from the same coordinates for proper terrain allignment.  We introduce 'lidar2obj.py' which will take a heightmap from QGIS exported as geotiff and convert it to a terrain.obj suitable for use inside blender and ready for the OPCD Tools  conform mesh to terrain.  The usage is very simple; if you can build lidar/Dem elevation map for your outer.  This insures the entire .blend from cleander is confomed;  then run ``` python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ``` obviously using your own Lidar/DEM outer.   
 
 ![Description](./out.jpg)
 

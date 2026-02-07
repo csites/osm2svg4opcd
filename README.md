@@ -7,6 +7,13 @@ This is a large update of osm2svg_v7.py tool. Version 9 (v9) represents the stab
 ** New in V9. **
 Since we are using the WGS94 coordinates used by OpenStreetmap, our terrain.obj needs to be built from the same coordinates for proper terrain allignment.  We introduce 'lidar2obj.py' which will take a heightmap from QGIS exported as geotiff and convert it to a terrain.obj suitable for use inside blender and ready for the OPCD Tools  conform mesh to terrain.  The usage is very simple; if you can build lidar/Dem elevation map for your outer.  This insures the entire .blend from cleander is confomed;  then run ``` python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ``` obviously using your own Lidar/DEM outer.   
 
+So typically we run will run the osm2svg_v9.py program this way; ``` (venv) chuck@grandian:~/src/osm2svg4opcd$ ./osm2svg_v9.py --background1 Seneca_heightmap_inner.tif --background2 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_Hillshade_Inner.tif --background3 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_G_Inner.tif --background4 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_B_Inner.tif ```
+
+Things you will want to watch for;  In the styles.json we have a ``` 'distance-from': 300 ''' which indicales a cut off point for ininclusion into the svg.  So it will clip roads an minor features from being included in your inkscape.   300 is in meters from the bboarder edge of the golf course as outlined with the tag 'leisuer.golf_course'.  I've used a custom color for building, it's just a marker for placement of a building.  it's probably an area that will need to be flattened before placing a house at those locations.
+
+* Known Bugs:
+osm2svg_v9 still has a problem of not unioning things like cartpaths correctly.  It will be sneaky and slip them underwater.  There maybe some issue with rounding (filleting) corners of a roadway where the bezier points do not match up.  I should have these issue resolved soon.  In the mean time, this should pass through the new 'Clindar' and with the new lidar2obj.py functions, it should align perfectly the first time.  
+
 ![Description](./out.jpg)
 
 # Typical Workflow

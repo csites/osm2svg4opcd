@@ -2,9 +2,9 @@
 """
 osm2svg_v9.py takes map.osm and coverts it to out.svg with parameters set at the command-line and specified in styles.json.
 This version was updated to handle the the map.osm from the Overpass API as well as export directly from OpenStreetMap.org.
-The out.svg is designed for the new beta-Clinder program.  This version also scales and clips map.osm features to the the
+The out.svg is designed for the new beta-Clender program.  This version also scales and clips map.osm features to the the
 coordinates specified in the map.osm download.  Additionally, it sets the Default SVG scale to be 1 meter = 1 mm of SVG units
-per OPCD recomendations.
+per OPCD recomendations.  
 """
 
 import xml.etree.ElementTree as ET
@@ -19,7 +19,7 @@ from rasterio.warp import reproject, Resampling
 import numpy as np
 import shapely.geometry as sg
 from shapely.geometry import LineString, Polygon, MultiPolygon
-from shapely.ops import unary_union
+from shapely.ops import unary_union, split
 import traceback
 
 # --- Global Configuration and Assumed Inputs ---
@@ -50,7 +50,7 @@ SVG_MM_EQUIVALENCE = MM_PER_METER * METER_LENGTH
 
 SIMPLIFY_TOLERANCE = 0.1
 
-FILLET_RADIUS = 0.05  # radius used at corners of paths.
+FILLET_RADIUS = 0.425  # radius used at corners of paths.
 MAX_STROKE_WIDTH_MM = 3.0 # You tune MAX_STROKE_WIDTH_MM to match the widest line in your styles.json
 KERF_SEPARATION_MM = 0.05 
 UNBREAKABLE_KERF_MM = 0.5 # seperation to
@@ -66,7 +66,7 @@ MIN_LON = 0.0
 MAX_LON = 0.0
 SAFETY_INSET_MM = 8.0 
 CLIP_DISTANCE = 0.0  # Will hold the clip radius in METERS
-CLIP_MARGIN_MM = 0.0 # Will hold the kerf separation in MM (0.05)
+CLIP_MARGIN_MM = 0.1 # Will hold the kerf separation in MM (0.05)
 MAP_MIN_X = 0.0      # Projected X-coordinate of the map's left edge (in meters)
 MAP_MAX_Y = 0.0      # Projected Y-coordinate of the map's top edge (in meters)
 REAL_TO_SVG_SCALE = 0.0 # The final calculated scale factor (mm/meter)
@@ -203,75 +203,105 @@ def generate_svg_header_from_bounds(min_lat, max_lat, min_lon, max_lon):
 
     # 3. Set viewBox coordinates (in Meters).
     viewbox = f"0 0 {width_mm_val} {height_mm_val}"
-    
-    header = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" \n'
-        f'    xmlns:xlink="http://www.w3.org/1999/xlink" \n'
-        f'    width="{width_mm_val}mm" \n'
-        f'    height="{height_mm_val}mm" \n'
-        f'    viewBox="{viewbox}" \n' # This is the critical change
-        f'    version="1.1">\n'
+    svg_header = (
+        f'<svg width="{SVG_WIDTH_MM}mm" height="{SVG_HEIGHT_MM}mm" '
+        f'viewBox="0 0 {SVG_WIDTH_MM} {SVG_HEIGHT_MM}" '
+        'xmlns="http://www.w3.org/2000/svg" '
+        'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" ' 
+        'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">\n'
     )
     
     # Many of necessary globals are already set by A2.
     return header, map_width_m, map_height_m, REAL_TO_SVG_SCALE    
 
 
-# ---------------------------------------------------------------------------------
-# --- Coordinate & Geometry Transform FUNCTIONS B1. lon_lat_to_svg_xy(lon, lat) ---
-# ---------------------------------------------------------------------------------
-def lon_lat_to_svg_xy(lon, lat):
+# --------------------------------------------------------------------------------------
+# --- B1. generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon) ---
+# --------------------------------------------------------------------------------------
+def generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon):
     """
-    Transforms a single (lon, lat) coordinate into SVG (x, y) coordinates (in mm).
+    Calculates the projection factors and creates the SVG XML header.
+    Sets the global coordinate system to Millimeters (1 unit = 1mm).
     """
-    global MIN_LON, MIN_LAT, METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR
-    global MAP_HEIGHT_M, REAL_TO_SVG_SCALE # Need MAP_HEIGHT_M for the Y-flip, and REAL_TO_SVG_SCALE for the mm conversion.
+    global MIN_LAT, MAX_LAT, MIN_LON, MAX_LON
+    global METERS_PER_DEGREE_LAT_FACTOR, METERS_PER_DEGREE_LON_FACTOR
+    global SVG_WIDTH_MM, SVG_HEIGHT_MM, MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE
 
-    # 1. Calculate meter offsets (from MIN_LON, MIN_LAT)
-    lon_offset_deg = lon - MIN_LON
-    lat_offset_deg = lat - MIN_LAT
+    # Store bounds globally for use in other B-series functions
+    MIN_LAT, MAX_LAT = minlat, maxlat
+    MIN_LON, MAX_LON = minlon, maxlon
+
+    # 1. Calculate the 'Flat Earth' projection factors at this specific latitude
+    # 1 degree of latitude is roughly 111,320 meters
+    METERS_PER_DEGREE_LAT_FACTOR = 111320.0
+    # Longitude length shrinks as you move toward the poles
+    avg_lat_rad = math.radians((minlat + maxlat) / 2.0)
+    METERS_PER_DEGREE_LON_FACTOR = METERS_PER_DEGREE_LAT_FACTOR * math.cos(avg_lat_rad)
+
+    # 2. Determine Real World Dimensions in Meters
+    map_width_m = (maxlon - minlon) * METERS_PER_DEGREE_LON_FACTOR
+    map_height_m = (maxlat - minlat) * METERS_PER_DEGREE_LAT_FACTOR
+
+    # 3. Scale Factor: 1.0 means 1 meter = 1mm (1:1000 scale)
+    REAL_TO_SVG_SCALE = 1.0 
     
-    x_offset_m = lon_offset_deg * METERS_PER_DEGREE_LON_FACTOR
-    y_offset_m = lat_offset_deg * METERS_PER_DEGREE_LAT_FACTOR
+    # Calculate Final SVG Paper Size
+    SVG_WIDTH_MM = map_width_m * REAL_TO_SVG_SCALE
+    SVG_HEIGHT_MM = map_height_m * REAL_TO_SVG_SCALE
 
-    # 2. Perform the Y-Flip (y_dist_from_top_m)
-    # The map height in meters is MAP_HEIGHT_M (Global, from A2).
-    # The Y-flip is total map height in meters MINUS the offset from the bottom in meters.
-    y_dist_from_top_m = MAP_HEIGHT_M - y_offset_m
+    # 4. Establish the 'Origin' for the coordinate math
+    # Map Min X is the leftmost Longitude; Map Max Y is the topmost Latitude (SVG 0 is top)
+    MAP_MIN_X = MIN_LON
+    MAP_MAX_Y = MAX_LAT
+
+    header = (
+        f'<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+        f'<svg width="{SVG_WIDTH_MM}mm" height="{SVG_HEIGHT_MM}mm" '
+        f'viewBox="0 0 {SVG_WIDTH_MM} {SVG_HEIGHT_MM}"\n'
+        f'  xmlns="http://www.w3.org/2000/svg"\n'
+        f'  xmlns:xlink="http://www.w3.org/1999/xlink"\n'
+        f'  xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"\n'
+        f'  xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">\n'
+        f'\n'
+    )
     
-    # 3. Final Conversion to SVG units (MM) using the map scale factor.
-    x_mm = x_offset_m * REAL_TO_SVG_SCALE
-    y_mm = y_dist_from_top_m * REAL_TO_SVG_SCALE # Use REAL_TO_SVG_SCALE
-
-    return x_mm, y_mm
+    print(f"INFO: SVG Dimensions: {SVG_WIDTH_MM:.2f}mm x {SVG_HEIGHT_MM:.2f}mm")
+    return header, map_width_m, map_height_m, REAL_TO_SVG_SCALE
 
 
-# -----------------------------------------------------------------------------------
-# --- Coordinate & Geometry Transform FUNCTIONS B2. format_coords_for_svg(coords) ---
-# -----------------------------------------------------------------------------------
-def format_coords_for_svg(coords):
+# --------------------------------------------------------------------------------------
+# --- B2. project_lon_lat(lon, lat) ---
+# --------------------------------------------------------------------------------------
+def project_lon_lat(lon, lat):
     """
-    Converts Shapely coordinates (in projected meters) to SVG coordinates (in millimeters).
+    The core transformer. Converts a single Lon/Lat point into SVG X/Y.
+    X increases to the right. Y increases downward.
     """
-    global REAL_TO_SVG_SCALE, MAP_HEIGHT_M # Need MAP_HEIGHT_M for Y-flip!
+    x = (lon - MAP_MIN_X) * METERS_PER_DEGREE_LON_FACTOR * REAL_TO_SVG_SCALE
+    # In SVG, Y=0 is the top. So we subtract current lat from the MAX (top) latitude.
+    y = (MAP_MAX_Y - lat) * METERS_PER_DEGREE_LAT_FACTOR * REAL_TO_SVG_SCALE
+    return x, y
 
-    if not REAL_TO_SVG_SCALE:
-        raise ValueError("REAL_TO_SVG_SCALE is not set. Cannot convert coordinates to SVG units.")
-        
-    formatted_coords = []
+
+# --------------------------------------------------------------------------------------
+# --- B3. get_way_coordinates(way_id) ---
+# --------------------------------------------------------------------------------------
+def get_way_coordinates(way_id):
+    """
+    Retrieves the raw nodes for a way and projects them into the SVG coordinate space.
+    """
+    if way_id not in ways:
+        return []
     
-    for x_m, y_m in coords:
-        # 1. Perform the Y-Flip (Meter to Meter)
-        # y_m_flipped = MAP_HEIGHT_M - y_m  (FLIP Y here).
-        
-        # 2. Convert to MM (The scale fix)
-        x_mm = x_m * REAL_TO_SVG_SCALE
-        y_mm = y_m * REAL_TO_SVG_SCALE 
-
-        # Format the coordinates
-        formatted_coords.append(f"{x_mm:.4f},{y_mm:.4f}")
+    coords = []
+    for node_id in ways[way_id]['refs']:
+        if node_id in nodes:
+            lon, lat = nodes[node_id]
+            x, y = project_lon_lat(lon, lat)
+            coords.append((x, y))
             
-    return formatted_coords
+    return coords
 
 
 # --------------------------------------------------------------------------------
@@ -288,7 +318,7 @@ def get_way_coordinates(way_id):
             for nodeid in node_refs:
                 if nodeid in nodes:
                     lon, lat = nodes[nodeid]
-                    x, y = lon_lat_to_svg_xy(lon, lat)
+                    x, y = project_lon_lat(lon, lat)
                     coords.append((x, y))
     return coords
 
@@ -306,23 +336,20 @@ def join_ways_into_path_d(way_coords_list, return_coords_only=False):
     for segment in way_coords_list:
         all_coords.extend(segment)
     
-    if not all_coords:
-        return ""
+    if not all_coords: return ""
+    if return_coords_only: return all_coords
 
-    if return_coords_only:
-        return all_coords
-
-    path_d = f"M {all_coords[0][0]:.4f},{all_coords[0][1]:.4f}"
-    
-    for x, y in all_coords[1:]:
-        path_d += f" L {x:.4f},{y:.4f}"
+    # Use E2 (format_coords) to ensure the 4-decimal standard is kept
+    path_d = f"M {format_coords([all_coords[0]])}"
+    if len(all_coords) > 1:
+        path_d += f" L {format_coords(all_coords[1:])}"
         
-    # If the first and last point are the same, close the path (crucial for valid polygons)
     if math.isclose(all_coords[0][0], all_coords[-1][0], abs_tol=0.0001) and \
        math.isclose(all_coords[0][1], all_coords[-1][1], abs_tol=0.0001):
         path_d += " Z"
     
     return path_d
+
 
 # ----------------------------------------------------------------------------------------------------
 # --- OSM Data & Geometry Processing FUNCTIONS C3. process_multipolygon_relation(relation, styles) ---
@@ -383,7 +410,7 @@ def process_multipolygon_relation(relation, styles):
         
     # 3. Join coordinate lists and build path segments (M...Z)
     
-    # Call C2. join_ways_into_path_d which will return a joined list of coordinates for Shapely
+    # Call join_ways_into_path_d which will return a joined list of coordinates for Shapely
     outer_d = join_ways_into_path_d(outer_way_coords_list, return_coords_only=True)
         
     # 3.1 Convert inner rings to a list of coordinate tuples (or whatever Shapely expects)
@@ -432,29 +459,26 @@ def process_multipolygon_relation(relation, styles):
     }]
 
 
-# -----------------------------------------------------------------------------------------------
-# --- OSM Data & Geometry Processing FUNCTIONS C4. smooth_corners_by_buffer(geometry, radius) ---
-# -----------------------------------------------------------------------------------------------
-def smooth_corners_by_buffer(geometry, radius):
+# --------------------------------------------------------------------------------------------------------
+# --- OSM Data & Geometry Processing FUNCTIONS C4. smooth_corners_by_buffer(geometry, radius, osm_tag) ---
+# --------------------------------------------------------------------------------------------------------
+def smooth_corners_by_buffer(geometry, radius, osm_tag=None):
     """
     Applies a small negative buffer followed by a positive buffer to round
     corners and simplify geometry while maintaining a tight boundary.
     This acts as a fillet operation.
     """
-    if geometry.is_empty:
+    if geometry.is_empty or osm_tag == 'building':
         return geometry
     try:
-        # Join_Style 1 = ROUND. This is the magic ingredient for filleting.
-        # We buffer OUT first to create the rounded "shoulders"
+        # Join_Style 1 = ROUND. 
         smoothed = geometry.buffer(radius, join_style=1, quad_segs=8)
-        smoothed = smoothed.buffer(-radius, join_style=1, quad_segs=8)
-        # Then buffer IN to bring the edges back to their original position
-        return smoothed
+        return smoothed.buffer(-radius, join_style=1, quad_segs=8)
 
     except Exception as e:
         print(f"Warning: Corner smoothing failed: {e}")
-        return geometry # Return original geometry if operation fails
-
+        return geometry
+    
 
 # -------------------------------------------------------------------------------------------------------------------
 # --- OSM Data & Geometry Processing FUNCTIONS C5. convert_stroke_to_path(way_coords, stroke_width, attrs, radius) --
@@ -497,7 +521,67 @@ def convert_stroke_to_path(way_coords, stroke_width, attrs, radius):
     return poly
 
 
+# -----------------------------------------------------------------------------------------------------------------
+# --- OSM Data & Geometry Processing FUNCTIONS C6. get_auto_smooth_controls(p_prev, p_curr, p_next, tightness)  ---
+# -----------------------------------------------------------------------------------------------------------------
+def get_auto_smooth_controls(p_prev, p_curr, p_next, tightness=0.33):
+    """
+    C6: Calculates Bezier control points for a node.
+    A tightness of 0.33 is standard; 0.55 is 'relaxed' for golf grass.
+    """
+    
+    # Vector from previous to next
+    dx = p_next[0] - p_prev[0]
+    dy = p_next[1] - p_prev[1]
+
+    # Handle length based on distance to neighbors and tightness
+    d_prev = math.sqrt((p_curr[0] - p_prev[0])**2 + (p_curr[1] - p_prev[1])**2)
+    d_next = math.sqrt((p_next[0] - p_curr[0])**2 + (p_next[1] - p_curr[1])**2)
+    
+    # The 'Relaxation' Math: Length of handles
+    l_prev = d_prev * tightness
+    l_next = d_next * tightness
+
+    # Control point 1 (incoming)
+    cp1 = (p_curr[0] - (dx * (l_prev / (d_prev + d_next + 1e-6))),
+           p_curr[1] - (dy * (l_prev / (d_prev + d_next + 1e-6))))
            
+    # Control point 2 (outgoing)
+    cp2 = (p_curr[0] + (dx * (l_next / (d_prev + d_next + 1e-6))),
+           p_curr[1] + (dy * (l_next / (d_prev + d_next + 1e-6))))
+
+    return cp1, cp2
+
+
+# -------------------------------------------------------------------------------------------------------
+# --- OSM Data & Geometry Processing FUNCTIONS C7. ring_to_bezier_d(coords, is_closed=True, tightness ---
+# -------------------------------------------------------------------------------------------------------
+def ring_to_bezier_d(coords, is_closed=True, tightness=0.33):
+    """
+    C7: Converts a list of coordinates into a smooth SVG Bezier path string.
+    """
+    if len(coords) < 3:
+        return "M " + " L ".join([f"{x:.4f},{y:.4f}" for x, y in coords])
+
+    path_parts = [f"M {coords[0][0]:.4f},{coords[0][1]:.4f}"]
+    
+    for i in range(len(coords) - (0 if is_closed else 1)):
+        p0 = coords[i-1]
+        p1 = coords[i]
+        p2 = coords[(i+1) % len(coords)]
+        p3 = coords[(i+2) % len(coords)]
+        
+        # Get handles for the current segment (p1 to p2)
+        _, cp1 = get_auto_smooth_controls(p0, p1, p2, tightness)
+        cp2, _ = get_auto_smooth_controls(p1, p2, p3, tightness)
+        
+        path_parts.append(f"C {cp1[0]:.4f},{cp1[1]:.4f} {cp2[0]:.4f},{cp2[1]:.4f} {p2[0]:.4f},{p2[1]:.4f}")
+        
+    if is_closed: path_parts.append("Z")
+    
+    return " ".join(path_parts)
+
+
 # --------------------------------------------------------------------------------------------------
 # --- Clipping and Optimization FUNCTIONS D1. calculate_derived_clipping_constants(all_features) ---
 # --------------------------------------------------------------------------------------------------
@@ -838,21 +922,14 @@ def clip_conditional_intersections(all_features):
                         p2 = segment.interpolate(CUT_GAP_M)
                         cutter = sg.LineString([p1, p2])
                         
-                        # Use the cut method from Shapely to slice the loop
+                        # loop breaking
                         try:
-                            # The result of cut is a MultiLineString if the cut succeeds
-                            cut_result = cut(segment, cutter)
-                            if cut_result and not cut_result.is_empty:
-                                # We want the segment that represents the rest of the loop
-                                # after the cut. We take the largest resulting LineString.
-                                if cut_result.geom_type == 'MultiLineString':
-                                    final_segment = max(cut_result.geoms, key=lambda g: g.length)
-                                else:
-                                    final_segment = cut_result
-                                
+                            split_result = split(segment, cutter)
+                            # The split will produce a collection; the longest piece is our broken loop
+                            if not split_result.is_empty:
+                                final_segment = max(spit_result.geoms, key=lambda g: g.length)
                         except Exception as e:
-                            # print(f"Warning: Failed to cut loop for Way {feature_id}: {e}")
-                            pass # Keep original segment if cut fails
+                            pass 
                         
                     # Store the final segment (or the cut segment)
                     segment_id = f"{feature.get('id', feature['tag'])}-{k}"
@@ -898,7 +975,7 @@ def clip_conditional_intersections(all_features):
 def z_order_clip_and_finalize(all_features):
     """
     D5: Performs Z-order hole-punching and boundary clipping.
-    Smoothing is intentionally moved to E9.
+    Smoothing is done in E-nine: process_and_write_v9_logic(grouped_geoms, styles_dict)
     """
     final_features_to_draw = []
     polygon_features_for_zorder = []
@@ -926,30 +1003,41 @@ def z_order_clip_and_finalize(all_features):
             final_features_to_draw.append(feature)
 
     # 2. Z-Order Precedence Clipping (Higher-Z punches holes in Lower-Z)
-    sorted_polygons = sorted(polygon_features_for_zorder, key=lambda f: f['style_data']['z-order'])
+    sorted_polygons = sorted(polygon_features_for_zorder, key=lambda f: f['style_data']['z-order'], reverse=True)
     clip_margin = CLIP_MARGIN_MM / MM_PER_METER  
     
     processed_polygons = []
     for current_feature in sorted_polygons:
         current_poly = current_feature['shape']
         current_z = current_feature['style_data']['z-order']
-        
+        current_tag = current_feature.get('osm_tag', '').lower()
+
         for prev_feature in processed_polygons:
             prev_z = prev_feature['style_data']['z-order']
-            if prev_z > current_z:
-                clip_shape = prev_feature['shape']
-                if not clip_shape.is_empty and current_poly.intersects(clip_shape):
+            clip_shape = prev_feature['shape']
+            prev_tag = prev_feature.get('osm_tag', '').lower()
+            is_unbreakable = prev_feature['style_data'].get('clipper_mode') == 'unbreakable'
+            
+            # --- THE LOGIC FILTER ---
+            # We ONLY cut if (It's Unbreakable OR higher Z) 
+            # AND the thing doing the cutting is NOT a road/path/building.
+            
+            is_infrastructure = any(x in prev_tag for x in ['highway', 'path', 'building', 'water'])
+            
+            if (is_unbreakable or prev_z > current_z) and not is_infrastructure:
+                if current_poly.intersects(clip_shape):
+                    # Apply the 'Bridge/Road Gap'
+                    gap_buffer = clip_shape.buffer(clip_margin, join_style=2)
                     try:
-                        buffered_clip_shape = clip_shape.buffer(clip_margin, join_style=2)
-                        current_poly = current_poly.difference(buffered_clip_shape)
+                        current_poly = current_poly.difference(gap_buffer)
                     except:
                         current_poly = current_poly.difference(clip_shape)
-        
+                        
         if not current_poly.is_empty:
             current_feature['shape'] = current_poly
             processed_polygons.append(current_feature)
 
-    # 3. The "Guillotine" (Boundary Clip)
+    # 3. Boundary Clip (The Guillotine)
     final_features_to_draw.extend(processed_polygons)
     safe_zone = sg.box(*CLIP_BBOX)
     
@@ -963,42 +1051,59 @@ def z_order_clip_and_finalize(all_features):
     return final_output
 
 
-# -----------------------------------------------------------------------------------------------------------------
-# -- Clipping and Optimization FUNCTIONS D6. filter_features_by_spatial_condition(all_features, target_polygons) --
-# -----------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------------
+# --- Clipping and Optimization FUNCTIONS D6. filter_features_by_spatial_condition(all_features, target_polygons) ---
+# -------------------------------------------------------------------------------------------------------------------
 def filter_features_by_spatial_condition(all_features, target_polygons):
+    """
+    Filters or clips features based on their proximity to target zones (e.g., Fairways).
+    Uses centroid logic for buildings to prevent partial clipping of structures.
+    """
     filtered_features = []
-    if not target_polygons: return all_features
+    if not target_polygons: 
+        return all_features
+
+    # Create a single unified area of all target polygons (e.g., all fairways/greens)
     union_target = unary_union(target_polygons)
     
     for feature in all_features:
         style_data = feature['style_data']
         shape = feature.get('shape')
         osm_tag = feature.get('osm_tag', '').lower()
+        
+        # 'distance-from' in styles.json defines the buffer (in meters) around targets
         distance_str = style_data['attrs'].get('distance-from')
         
+        # If no spatial rule is defined, pass the feature through normally
         if distance_str is None or shape is None:
             filtered_features.append(feature)
             continue
 
         dist = float(distance_str)
+        # 0 distance = exact overlap; > 0 = creates a surrounding search buffer
         inclusion_zone = union_target if dist == 0 else union_target.buffer(dist)
         
-        # CLIP ROADS, FILTER BUILDINGS
-        if any(k in osm_tag for k in ['highway', 'road', 'street', 'path']):
+        # CATEGORY 1: Infrastructure (Roads, Water, Paths)
+        # These are "Clipped" - we keep the parts that are inside the zone.
+        if any(k in osm_tag for k in ['highway', 'aeroway', 'water', 'path']):
             if shape.intersects(inclusion_zone):
                 clipped = shape.intersection(inclusion_zone)
                 if not clipped.is_empty:
                     feature['shape'] = clipped
                     filtered_features.append(feature)
-        elif osm_tag == 'building':
+
+        # CATEGORY 2: Buildings
+        # We use the Centroid check to keep the building "whole" if its center is in range.
+        elif 'building' in osm_tag:
+            if shape.centroid.intersects(inclusion_zone):
+                filtered_features.append(feature)
+
+        # CATEGORY 3: Everything Else (Trees, Bunkers, etc.)
+        else:
             if shape.intersects(inclusion_zone):
                 filtered_features.append(feature)
-        else:
-            filtered_features.append(feature)
 
     return filtered_features
-
 
 # --------------------------------------------------------------------------------------
 # --- SVG Rendering and Output FUNCTIONS E1. generate_svg_elements(features_to_draw) ---
@@ -1055,157 +1160,91 @@ def generate_svg_elements(features_to_draw):
     return svg_elements
 
 
-# -----------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E2. convert_to_svg_d(shape)  ---
-# -----------------------------------------------------------------------
-def convert_to_svg_d(shape):
-    """
-    Converts a Shapely LineString, Polygon, MultiLineString, or MultiPolygon
-    into a standardized SVG Path 'd' attribute string.
-    """
-    d_parts = []
+# ---------------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E2. format_coords(coords)  ---
+# ---------------------------------------------------------------------
+def format_coords(coords):
+    """The Single Source of Truth for coordinate precision."""
+    return " ".join([f"{x:.4f},{y:.4f}" for x, y in coords])
 
-    # ... (Main logic remains the same) ...
+
+# -----------------------------------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E3. convert_to_svg_d(shape, is_building=False) ---
+# -----------------------------------------------------------------------------------------
+def convert_to_svg_d(shape, is_building=False):
     if shape.is_empty:
         return ""
 
-    if shape.geom_type in ('LineString', 'Polygon'):
-        if shape.geom_type == 'LineString':
-            d_parts.append(process_linestring(shape))
-        elif shape.geom_type == 'Polygon':
-            d_parts.append(process_polygon(shape))
-            
-    elif shape.geom_type in ('MultiLineString', 'MultiPolygon'):
-        # Iterate over all components in the collection
-        for geom in shape.geoms:
-            if geom.geom_type == 'LineString':
-                d_parts.append(process_linestring(geom))
-            elif geom.geom_type == 'Polygon':
-                d_parts.append(process_polygon(geom))
+    if shape.geom_type == 'Polygon':
+        return _poly_to_d(shape)
+    elif shape.geom_type == 'MultiPolygon':
+        return " ".join([_poly_to_d(p) for p in shape.geoms])
+    elif shape.geom_type == 'LineString':
+        return _line_to_d(shape) # Sharp lines for roads/paths
+    elif shape.geom_type == 'MultiLineString':
+        return " ".join([_line_to_d(ls) for ls in shape.geoms])
+    return ""
 
-    return " ".join(d_parts)
-
-# -----------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E3. process_linestring(line) ---
-# -----------------------------------------------------------------------
-def process_linestring(line):
-    coords_list = list(line.coords) # Convert to a mutable list
-
-    # --- FIX 3: ENFORCE LOOP BREAK ---
-    # If the LineString is a closed loop, drop the final coordinate to create a gap
-    if line.is_closed and len(coords_list) > 1 and coords_list[0] == coords_list[-1]:
-         coords_list = coords_list[:-1] # Drop the last coordinate
-
-    coords = format_coords_for_svg(coords_list)
-    if not coords: return ""
-
-    # Start with MoveTo (M) to the first point, then LineTo (L) for the rest
-    return "M " + " L ".join(coords) 
-
-
-# -----------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E4. process_polygon(polygon) --- 
-# -----------------------------------------------------------------------
-def process_polygon(polygon):
-    parts = []
-
-    # 1. Exterior Ring (The main shape boundary)
-    exterior_coords = format_coords_for_svg(polygon.exterior.coords)
-    if not exterior_coords: return ""
-    # Polygon MUST be closed with 'Z'
-    parts.append("M " + " L ".join(exterior_coords) + " Z") 
-
-    # 2. Interior Rings (Holes)
-    for interior in polygon.interiors:
-        interior_coords = format_coords_for_svg(interior.coords)
-        # Holes MUST be closed with 'Z'
-        parts.append("M " + " L ".join(interior_coords) + " Z")
-
-    return " ".join(parts)
-
-
-# ---------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E5. coords_to_svg_d(coord) ---
-# ---------------------------------------------------------------------
-def coords_to_svg_d(coords):
-    """Helper to convert a list of (x,y) tuples to 'M x,y L x,y ... Z' """
-    if len(coords) < 3: return ""
+# ---------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E4. _line_to_d(line) ---  
+# ---------------------------------------------------------------
+def _line_to_d(line):
+    """Formats LineStrings. Uses Z for closed loops to ensure physical closure."""
+    coords_list = list(line.coords)
     
-    start_pt = coords[0]
+    if line.is_closed:
+        # Instead of slicing, we use the SVG 'Z' command to close the path perfectly
+        return f"M {format_coords(coords_list)} Z"
     
-    # M (move to start)
-    d_str = f"M {start_pt[0]:.4f},{start_pt[1]:.4f}" 
+    return f"M {format_coords(coords_list)}"
+
+# ---------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E5. _poly_to_d(poly) ---
+# ---------------------------------------------------------------
+def _poly_to_d(poly):
+    """Formats Polygons with holes using the format_coords SSOT."""
+    # Exterior - Ensure we don't double-up the last point before the Z
+    ext_coords = list(poly.exterior.coords)
+    if ext_coords[0] == ext_coords[-1]: ext_coords = ext_coords[:-1]
     
-    # L (line to rest of points)
-    d_str += " L " + " ".join([f"{x:.4f},{y:.4f}" for x, y in coords[1:]])
+    d = f"M {format_coords(ext_coords)} Z"
     
-    # Z (close path)
-    d_str += " Z" 
-    
-    return d_str
-
-
-# ----------------------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E6. shapely_polygon_to_svg_d(poly_geom) --- 
-# ----------------------------------------------------------------------------------
-def shapely_polygon_to_svg_d(poly_geom):
-    """
-    Refined E6: Converts a Polygon to an SVG 'd' string.
-    Ensures clear separation between exterior and interior rings.
-    """
-    if poly_geom.is_empty:
-        return ""
-
-    # Since E9 already 'explodes' MultiPolygons, 
-    # we can assume poly_geom is a single Polygon here.
-    if poly_geom.geom_type != 'Polygon':
-        # Fallback for unexpected types
-        return ""
-
-    parts = []
-
-    # 1. Exterior Ring
-    # We use coords_to_svg_d which should start with 'M' and end with 'Z'
-    ext_coords = list(poly_geom.exterior.coords)
-    parts.append(coords_to_svg_d(ext_coords))
-
-    # 2. Interior Rings (Holes)
-    for interior in poly_geom.interiors:
+    # Interiors (Holes)
+    for interior in poly.interiors:
         int_coords = list(interior.coords)
-        # Each hole MUST start with its own 'M' and end with 'Z'
-        parts.append(coords_to_svg_d(int_coords))
-
-    # Join with a space. The result is "M...Z M...Z"
-    return " ".join(parts)
+        if int_coords[0] == int_coords[-1]: int_coords = int_coords[:-1]
+        d += f" M {format_coords(int_coords)} Z"
+    return d
 
 
-# -----------------------------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E7. write_svg_file(header, elements, filename) ---
-# -----------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------
+# --- SVG File Output FUNCTIONS F1. write_svg_file(header, elements, filename) ---
+# --------------------------------------------------------------------------------
 def write_svg_file(header, background_elements, foreground_elements, filename):
     """
-    Combines the SVG header and elements, and writes the complete XML 
-    to the defined outfile
+    E7: Final assembly. 
+    Maintains strict layering: Backgrounds first (bottom), then Foregrounds (top).
     """
     svg_content = [header]
+    svg_content.append('  <g id="layer-map-features" inkscape:groupmode="layer" inkscape:label="map-features">')
+    svg_content.append('    <g id="layer-background-images" inkscape:groupmode="layer" inkscape:label="background.images" inkscape:color="10">')
+    if background_elements:
+        svg_content.extend(background_elements)
+    svg_content.append('  </g>')
     
-    # 1. Add Background Elements (OUTSIDE the map-features group, written first)
-    svg_content.extend(background_elements)
-    
-    svg_content.append('<g id="map-features">')
-    svg_content.extend(foreground_elements)
-    svg_content.append('</g>')
+    if foreground_elements:
+        svg_content.extend(foreground_elements)
+    svg_content.append('  </g>')
     svg_content.append('</svg>')
     
-    with open(filename, 'w') as f:
+    with open(filename, 'w', encoding='utf-8') as f:
         f.write('\n'.join(svg_content))
     
-    print(f"File written successfully to: {filename}") # Already printed in main
+    print(f"✅ Success: File written with clean hierarchy to: {filename}")    
     
-
-# -----------------------------------------------------------------------------------------------
-# --- SVG Rendering background and Output FUNCTIONS E8. generate_background_svg_elements(...) ---
-# -----------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------
+# --- SVG File Output FUNCTIONS F2. generate_background_svg_elements(background_files, ...) ---
+# ---------------------------------------------------------------------------------------------
 def generate_background_svg_elements(background_files, svg_width, svg_height, 
                                      MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE,
                                      MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, 
@@ -1213,25 +1252,28 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
     """
     Reprojects and clips the GeoTIFF to the exact degree-bounds of the map.
     Places the resulting PNG at SVG origin (0,0) without units to match vector scaling.
+    Wraps background images names in a group as a named Inkscape Layer.    
     """
+    # Start the Group/Layer tag
     svg_elements = []
-    dst_crs = 'EPSG:4326' # Standardizing on WGS84 for the 'flat' degree grid
+    
+    dst_crs = 'EPSG:4326'
     
     for filename in background_files:
         try:
+            # 1. Clean the ID: /path/to/Seneca_hillshade.tif -> Seneca_hillshade
+            base_name = os.path.basename(filename)
+            clean_id = os.path.splitext(base_name)[0]
+
             with rasterio.open(filename) as src:
                 temp_filename = filename.replace(".tif", "_aligned.png")
-                
-                # We use a high enough resolution for the PNG crop
-                out_width = 2000 
+                out_width = 2000  
                 out_height = int(out_width * (svg_height / svg_width))
                 
-                # Transform defined by the map's degree boundaries
                 dst_transform = rasterio.transform.from_bounds(
                     MIN_LON, MIN_LAT, MAX_LON, MAX_LAT, out_width, out_height
                 )
                 
-                # Reproject/Warp the image data
                 destination = np.zeros((src.count, out_height, out_width), dtype=src.meta['dtype'])
                 for i in range(1, src.count + 1):
                     reproject(
@@ -1244,84 +1286,165 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
                         resampling=Resampling.bilinear
                     )
 
-                # Save the aligned PNG
                 out_meta = src.meta.copy()
                 out_meta.update({
-                    "driver": "PNG", 
-                    "height": out_height, 
-                    "width": out_width,
-                    "transform": dst_transform, 
-                    "crs": dst_crs, 
-                    "count": src.count
+                    "driver": "PNG", "height": out_height, "width": out_width,
+                    "transform": dst_transform, "crs": dst_crs, "count": src.count
                 })
 
                 with rasterio.open(temp_filename, 'w', **out_meta) as dst:
                     dst.write(destination)
 
-                # --- ALIGNMENT FIX ---
-                # Place at (0,0) and use UNITLESS width/height.
-                # This ensures 1 unit in the image = 1 unit in the vector paths.
-                x_pos = 0.0
-                y_pos = 0.0
-
+                # --- ALIGNMENT & IDENTITY FIX ---
+                # Added the unique ID here
                 svg_elements.append(
-                    f'<image x="{x_pos:.3f}" y="{y_pos:.3f}" '
-                    f'width="{svg_width:.3f}" height="{svg_height:.3f}" '
-                    f'xlink:href="file:///{os.path.abspath(temp_filename)}" />'
+                    f'    <image id="{clean_id}" x="0.0000" y="0.0000" '
+                    f'width="{svg_width:.4f}" height="{svg_height:.4f}" '
+                    f'xlink:href="file:///{os.path.abspath(temp_filename)}" '
+                    f'preserveAspectRatio="none" />'
                 )
                 
-                print(f"Successfully aligned: {temp_filename} placed at SVG origin (0,0)")
+                print(f"Successfully aligned: {temp_filename} as ID: {clean_id}")
 
         except Exception as e:
             print(f"Error processing {filename}: {e}")
 
     return svg_elements
 
+# -----------------------------------------------------------------------------------------
+# --- SVG File Output FUNCTIONS F3. process_and_write_v9_logic(output_svg, styles_dict) ---
+# -----------------------------------------------------------------------------------------
+def process_and_write_v9_logic(grouped_for_union, styles):
+    """
+    Groups features into SVG <g> layers by tag.
+    Keeps individual <path> elements separate for editing in Blender.
+    Fixes double-width stroke issues and applies Z-order sorting.
+    """
+    final_svg_output = []
+    radius = FILLET_RADIUS 
+    ui_colors = [
+        "#ff0000", "#ff7f00", "#ffff00", "#00ff00", 
+        "#00ffff", "#0000ff", "#8b00ff", "#ff00ff", "#ffffff"
+    ]
+    # 1. Z-ORDER SORT: Ensure background layers are written first
+    sorted_style_keys = sorted(
+        grouped_for_union.keys(),
+        key=lambda k: styles.get(k, {}).get('z-order', 0)
+    )
+
+    for i, style_key in enumerate(sorted_style_keys):
+        features = grouped_for_union[style_key]
+        if not features: continue
+        
+        hex_color = ui_colors[i % len(ui_colors)]
+        style_info = styles.get(style_key, {})
+        is_stroke_to_path = style_info.get('stroke_to_path', False)
+        
+        # Start an SVG Group (This becomes a "Collection" in Blender)
+        group_id = style_key.replace(".", "-")
+        final_svg_output.append(
+            f'  <g id="layer-{group_id}" '
+            f'inkscape:groupmode="layer" '
+            f'inkscape:label="{style_key}" '
+            f'inkscape:highlight-color="{hex_color}">'
+        )
+        
+        for feat in features:
+            shape = feat['shape']
+            # Here is the change: use 'way-' or 'rel-' prefix + the real OSM ID
+            osm_id = feat.get('id', 'unknown')
+            osm_type = feat.get('type', 'way') # Assumes you stored 'way' or 'relation' in Pass 1
+            
+            # Formulate a traceable ID: e.g., way-60174645
+            traceable_id = f"{osm_type}-{osm_id}"
+
+            if shape is None or shape.is_empty: continue
+
+            # Apply smoothing
+            shape = smooth_corners_by_buffer(shape, FILLET_RADIUS, style_key.split('.')[0])
+            
+            # Attributes & Stroke-to-Path Fix
+            attrs = dict(style_info.get('attrs', {}))
+            if is_stroke_to_path:
+                attrs['stroke-width'] = "0"
+                if attrs.get('fill') == 'none' or 'fill' not in attrs:
+                    attrs['fill'] = attrs.get('stroke', '#000000')
+
+            attr_str = ' '.join([f'{k}="{v}"' for k, v in attrs.items()])
+            d_path = convert_to_svg_d(shape)
+            
+            if d_path:
+                # Use the traceable_id here
+                path_tag = f'    <path id="{traceable_id}" {attr_str} d="{d_path}" />'
+                final_svg_output.append(path_tag)
+
+        final_svg_output.append('  </g>')
+
+    return final_svg_output
+
 
 # -------------------------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E9. process_and_write_v9_logic(output_svg) ---
+# --- Geometry Series: FUNCTION G1. process_multipolygon_relation(relation, styles) ---
 # -------------------------------------------------------------------------------------
-def process_and_write_v9_logic(grouped_geoms, styles_dict):
-    final_svg_elements = []
+def process_multipolygon_relation(relation, styles):
+    """
+    Handles OSM Multipolygons (Relations) and converts them into 
+    Shapely MultiPolygons with 'inner' (holes) and 'outer' rings.
+    """
+    inner_ways = []
+    outer_ways = []
+    rel_tags = {tag.get('k'): tag.get('v') for tag in relation.findall('tag')}
     
-    for style_key, geometries in grouped_geoms.items():
-        if not geometries: continue
-        
-        merged = unary_union(geometries)
-        
-        if FILLET_RADIUS > 0:
-            merged = smooth_corners_by_buffer(merged, FILLET_RADIUS)
-        
-        islands = list(merged.geoms) if hasattr(merged, 'geoms') else [merged]
+    # 1. Style Match for the Relation
+    style_data = None
+    feature_tag = None
+    for k, v in rel_tags.items():
+        searchtag = f"{k}.{v}"
+        if searchtag in styles:
+            style_data, feature_tag = styles[searchtag], searchtag
+            break
             
-        for i, island in enumerate(islands):
-            if island.is_empty: continue
-            
-            d_string = shapely_polygon_to_svg_d(island)
-            style_data = styles_dict.get(style_key, {})
-            attrs = style_data.get('attrs', {}).copy() # Copy to avoid mutating global styles
-            
-            # --- THE FIX: Convert Stroke Logic to Fill Logic ---
-            # If this was a 'stroke_to_path' feature, we must remove the stroke 
-            # and use the stroke color as the fill color.
-            if style_data.get('stroke_to_path'):
-                stroke_color = attrs.get('stroke', 'black')
-                attrs['fill'] = stroke_color  # Move color to fill
-                attrs['stroke'] = 'none'      # Remove the outline stroke
-                attrs['stroke-width'] = '0'   # Zero out the width
-            
-            # Rebuild the style string
-            svg_style_string = ' '.join([f'{k}="{v}"' for k, v in attrs.items()])
-            
-            safe_key = style_key.replace('.', '-').replace(':', '-')
-            path_tag = f'<path id="{safe_key}_{i}" d="{d_string}" {svg_style_string} />'
-            final_svg_elements.append(path_tag)
-            
-    return final_svg_elements
+    if not style_data: return []
 
+    # 2. Sort Members
+    for member in relation.findall('member'):
+        ref = member.get('ref')
+        role = member.get('role')
+        if ref in ways:
+            coords = get_way_coordinates(ref)
+            if len(coords) < 3: continue
+            if role == 'inner': inner_ways.append(Polygon(coords))
+            else: outer_ways.append(Polygon(coords))
 
+    if not outer_ways: return []
+
+    # 3. Create the Shell and subtract the Holes
+    try:
+        combined_outer = unary_union(outer_ways)
+        combined_inner = unary_union(inner_ways)
+        final_geom = combined_outer.difference(combined_inner)
+        
+        # Clip to safety box immediately (Area feature)
+        final_geom = final_geom.intersection(sg.box(*CLIP_BBOX))
+        
+        if final_geom.is_empty: return []
+
+        return [{
+            'shape': final_geom,
+            'tag': feature_tag,
+            'id': relation.get('id'),
+            'osm_tag': feature_tag.split('.')[0],
+            'style_data': style_data,
+            'requires_line_clip': False,
+            'requires_stroke_to_path': style_data.get('stroke_to_path', False)
+        }]
+    except Exception as e:
+        print(f"Error processing relation {relation.get('id')}: {e}")
+        return []
+
+    
 # ------------------------------------
-# --- The MAIN FUNCTION F1. main() ---
+# --- The MAIN FUNCTION M1. main() ---
 # ------------------------------------
 def main():
     """The main function to execute the conversion process."""
@@ -1426,20 +1549,13 @@ def main():
              'tags': way_tags
          }
          
+    CLIP_BBOX = (SAFETY_INSET_MM, SAFETY_INSET_MM, SVG_WIDTH_MM - SAFETY_INSET_MM, SVG_HEIGHT_MM - SAFETY_INSET_MM)         
+    # --------------------------------------------------------------------------------
+    # --- PASS 1 P1: Feature Collection (Ways & Relations) - Collect Shapely Objects ---
+    # --------------------------------------------------------------------------------
     all_shapely_features = []
     golf_course_polygons = [] # For handling buildings
     
-    # --------------------------------------------------------------------------------
-    # --- PASS P1. Feature Collection (Ways & Relations) - Collect Shapely Objects ---
-    # --------------------------------------------------------------------------------
-    try:
-        tree_pass2 = ET.parse(inputFile)
-        document_pass2 = tree_pass2.getroot()
-    except Exception as e:
-        print(f"Error re-parsing input file '{inputFile}' for feature collection: {e}")
-        # If re-parsing fails, fall back to the potentially exhausted document
-        document_pass2 = document
-        
     for way_id, way_data in ways.items():
         way_tags = way_data['tags']
         style_data = None
@@ -1452,26 +1568,22 @@ def main():
                 style_data = styles[searchtag]
                 feature_tag = searchtag
                 break
-            elif tag_key in styles:
-                style_data = styles[tag_key]
-                feature_tag = tag_key
-                break
             
-        if style_data is None:
-            continue
-
-        # 2. Geometry Retrieval & Initial Visibility Check
+        if not style_data:
+            for tag_key in way_tags.keys():
+                if tag_key in styles:
+                    style_data = styles[tag_key]
+                    feature_tag = tag_key
+                    break
+  
+        if style_data is None: continue
+        # 2. Geometry Retrieval
         way_coords_unclipped = get_way_coordinates(way_id)
-        if len(way_coords_unclipped) < 2:
-            continue
+        if len(way_coords_unclipped) < 2: continue
         
         current_line_string = sg.LineString(way_coords_unclipped)
-        # We check against the full SVG viewbox first to see if it's even relevant
-        full_viewbox = sg.box(0, 0, SVG_WIDTH_MM, SVG_HEIGHT_MM)
-        if not current_line_string.intersects(full_viewbox):
-            continue
-
-        # 3. Determine Feature Type
+        
+        # Determine Feature Type
         is_stroke_to_path = style_data.get('stroke_to_path', False)
         stroke_width = float(style_data['attrs'].get('stroke-width', 0.0))
         is_line_feature = is_stroke_to_path or (stroke_width > 0.0)
@@ -1480,52 +1592,37 @@ def main():
         current_shape = None
         requires_line_clip = False
 
-        # --- CASE A: LINE FEATURES (Roads, Paths, Fences) ---
+        # --- CASE A: LINE FEATURES ---
         if is_line_feature:
-            # IMPORTANT: Keep the UNCLIPPED version. 
-            # This allows C5 to 'smooth' the corners even at the map edges.
-            current_shape = current_line_string 
+            current_shape = current_line_string  
             requires_line_clip = True
 
-        # --- CASE B: AREA FEATURES (Buildings, Bunkers, Greens) ---
-        elif is_closed_way and ('fill' in style_data['attrs'] and style_data['attrs']['fill'] not in ('none', 'transparent')):
+        # --- CASE B: AREA FEATURES ---
+        elif is_closed_way:
             try:
-                # Polygons are clipped to the 8mm safety box immediately 
-                # because they don't need 'extra length' for end-caps.
+                # Polygons get immediate safety clipping
                 way_coords_clipped = clip_polyline_to_bounds(way_coords_unclipped, *CLIP_BBOX)
                 if len(way_coords_clipped) >= 3:
                     current_shape = sg.Polygon(way_coords_clipped)
-                    requires_line_clip = False
-            except Exception as e:
-                print(f"Warning: Could not create Polygon for way {way_id}: {e}")
-                continue
+            except Exception: continue
         
-        # 4. Final Feature Packaging
         if current_shape and not current_shape.is_empty:
-            # Build descriptive ID
-            safe_tag = feature_tag.replace('.', '-').replace('=', '-')
-            descriptive_base_id = f"{safe_tag}-{way_id}"
+            final_osm_tag = feature_tag.split('.')[0] # e.g. 'highway'
             
-            # Determine OSM Category for D6 Filtering
-            final_osm_tag = feature_tag.split('.')[0] if '.' in feature_tag else feature_tag
-            if way_tags.get('building') is not None:
-                final_osm_tag = 'building'
-
-            # Collect Golf Courses for the Building Clipper (D6)
-            if final_osm_tag == 'leisure.golf_course' or way_tags.get('leisure') == 'golf_course':
+            # Identify Golf Boundaries for D6
+            if 'golf_course' in feature_tag or way_tags.get('leisure') == 'golf_course':
                 golf_course_polygons.append(current_shape)
 
             all_shapely_features.append({
                 'shape': current_shape,
                 'tag': feature_tag,
                 'id': way_id,
-                'base_id': descriptive_base_id,  
                 'osm_tag': final_osm_tag,
                 'style_data': style_data,
                 'requires_line_clip': requires_line_clip,
-                'requires_stroke_to_path': is_stroke_to_path  
+                'requires_stroke_to_path': is_stroke_to_path   
             })
-        
+            
     # Filter out any non-dictionary objects (like stray strings or comments)
     cleaned_shapely_features = [f for f in all_shapely_features if isinstance(f, dict)]
     
@@ -1536,7 +1633,7 @@ def main():
     all_shapely_features = cleaned_shapely_features
  
     # Process Relations (MultiPolygons)
-    for relation in document_pass2.iter('relation'):
+    for relation in document.iter('relation'):
         is_multipolygon = False
         for tag in relation.findall('tag'):
             if tag.get('k') == 'type' and tag.get('v') == 'multipolygon':
@@ -1583,9 +1680,9 @@ def main():
         )
         print(f"DEBUG: Features remaining after filtering: {len(all_shapely_features)}")
         
-    # ----------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # --- PASS 2 P2: Line Clipping, Z-Order Cleaning, and Final Geometry Prep ---
-    # ----------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     
     # 1. Line Intersection Clipping (Z-ORDER PRECEDENCE LOGIC)
     # This step breaks lower-Z lines where they intersect higher-Z lines.
@@ -1605,45 +1702,36 @@ def main():
 
     print(f"INFO: Final feature count after Z-order processing: {len(final_features_to_draw)}")
     
-    # ----------------------------------------------------------------------
-    # --- PASS 3: Generate SVG, Sort and Write to File (New, Streamlined) ---
-    # ----------------------------------------------------------------------
-     # 1. Background Elements (as before)
+    # --------------------------------------------------------------------------
+    # --- PASS 3 P3: Generate SVG, Sort and Write to File (New, Streamlined) ---
+    # --------------------------------------------------------------------------
     background_svg_elements = generate_background_svg_elements(
-        background_files, 
-        SVG_WIDTH_MM, 
-        SVG_HEIGHT_MM,
-        MAP_MIN_X, 
-        MAP_MAX_Y,
-        REAL_TO_SVG_SCALE,
-        MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR
+        background_files, SVG_WIDTH_MM, SVG_HEIGHT_MM,
+        MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE,
+        MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, 
+        METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR
     )
-
     background_svg_elements.reverse()
-    
-    # v9 2. GROUPING FOR UNION (The "Clinder" Preparation)
-    # We group final_features_to_draw by their style tag
+
+    # 2. GROUPING FOR UNION (Standard logic)
     grouped_for_union = {}
     for feature in final_features_to_draw:
         tag = feature['tag']
         if tag not in grouped_for_union:
             grouped_for_union[tag] = []
-        # We use the 'shape' key which contains the Shapely geometry
-        grouped_for_union[tag].append(feature['shape'])
+        grouped_for_union[tag].append(feature)
 
-    # 3. CALL E9: Perform Unions and separate into individual <path> tags
-    # This replaces the old generate_svg_elements(final_features_to_draw)
-    print("INFO: Unioning similar features and isolating individual paths (E9)...")
+    # 3. Generate the vector features (using F3)
+    # These are the path groups (grass, roads, etc.)
+    print("INFO: Unioning similar features and isolating individual paths...")
     svg_features = process_and_write_v9_logic(grouped_for_union, styles)
 
-# V7    svg_features = generate_svg_elements(final_features_to_draw)
-    
-    all_svg_elements = background_svg_elements + svg_features
-
-    # 4. WRITE FILE
+    # 4. FINAL WRITE: Pass the two separate lists to F1
     try:
         write_svg_file(svg_header, background_svg_elements, svg_features, outputFile)
-        print(f"\n✅ SUCCESS: SVG file generated successfully: {outputFile} with {len(all_svg_elements)} elements.")
+        # We use background_svg_elements here because F1 handles the grouping for us!
+        
+        print(f"\n✅ SUCCESS: SVG file generated successfully: {outputFile}")
 
     except Exception as e:
         print(f"❌ ERROR: Failed to write SVG file: {e}")

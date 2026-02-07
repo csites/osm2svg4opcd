@@ -36,8 +36,8 @@ Alternative Acquisition: You can also use the website OpenStreetMap.org and sele
 
 
 ```
-osm2svg4opcd$ python ./osm2svg_v7.py --help
- usage: osm2svg_v7.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
+osm2svg4opcd$ python3 ./osm2svg_v9.py --help
+ usage: osm2svg_v9.py [-h] [--infile INFILE] [--outfile OUTFILE] [--styles STYLES] [--background1 BACKGROUND1]
                      [--background2 BACKGROUND2] [--background3 BACKGROUND3] [--background4 BACKGROUND4]
 
  Converts OpenStreetMap data (in projected meters) to an SVG file, with optional GeoTIFF background layers.
@@ -56,7 +56,29 @@ osm2svg4opcd$ python ./osm2svg_v7.py --help
   --background4 BACKGROUND4
                         Path to the fourth GeoTIFF image file for the background.
 
+
+example: osm2svg4opcd$ ./osm2svg_v9.py --background1 Seneca_heightmap_inner.tif --background2 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_Hillshade_Inner.tif --background3 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_G_Inner.tif --background4 /home/chuck/Projects/Seneca/QGIS/Overlays/Seneca_B_Inner.tif
 ```
+
+
+```
+osm2svg4opcd$ ./lidar2obj.py --help
+usage: lidar2obj.py [-h] --infile INFILE [--outfile OUTFILE] [--mapfile MAPFILE] [--scale_z SCALE_Z] [--sigma SIGMA]
+
+options:
+  -h, --help         show this help message and exit
+  --infile INFILE    Input GeoTIFF
+  --outfile OUTFILE  Output OBJ
+  --mapfile MAPFILE  OSM file for bounds
+  --scale_z SCALE_Z  Vertical scale
+  --sigma SIGMA      Gaussian image smoothing factor 0-5
+
+
+example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ```
+'''
+
+![Description](./obj-conformed.jpg)
+Image from blender of the conformed terrain to the .blend created in the 'clindar' meshing beta.
 
 ## CHANGES in v7.
 

@@ -75,7 +75,6 @@ options:
 
 
 example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ```
-'''
 
 ![Description](obj-conformed.jpg)
 

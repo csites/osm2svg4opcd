@@ -14,7 +14,7 @@ Things you will want to watch for;  In the styles.json we have a ``` 'distance-f
 * Known Bugs:
 osm2svg_v9 still has a problem of not unioning things like cartpaths correctly.  It will be sneaky and slip them underwater.  There maybe some issue with rounding (filleting) corners of a roadway where the bezier points do not match up.  I should have these issue resolved soon.  In the mean time, this should pass through the new 'Clindar' and with the new lidar2obj.py functions, it should align perfectly the first time.  
 
-![Description](./out.jpg)
+![Description](out.jpg)
 
 # Typical Workflow
 To use this program effectively, follow the standard OPCD setup, specifically the instructions provided in the "None to Done" V4 Toolset document.  Download any prerequisit programs you need, QGIS, Inkscape, and optionally your other tools.  As instructed in the "None to Done" document, build your Inner and Outer Lidar/DEM elevation maps in QGIS.  These layers define the geographic boundaries of your project.
@@ -77,7 +77,7 @@ options:
 example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ```
 '''
 
-![Description](./obj-conformed.jpg)
+![Description](obj-conformed.jpg)
 
 Image from blender of the conformed terrain to the .blend created in the 'clindar' meshing beta.
 
@@ -117,7 +117,7 @@ This tool processes raw OpenStreetMap (`.osm`) data and converts it into a scale
 * The **`styles.json`** file is the mapping engine. It dictates which OSM tags are searched for and what SVG attributes (like `fill`, `stroke`, `stroke-width`, and `z-order`) are applied to the resulting geometry. You can easily add support for new features (like specific building types) by updating this file.  In the next version, I will be adding a new command for stroke-based objects (roads, paths, highways, railways, waterways) called 'clipper-mode': either 'default' or 'unbreakable'.  This is to process intersections and insert breaks in the line segments to prevent overlaps.  'clipper-mode' is only valid with stroke objects (line segments). 
 
 * Here is an exmple picture of Seneca Golf course taken from Inkscape with a Hillshade background image and the openstreetnmap overlay with a global opacity of about 50% on the SVG portion.
-![Description](./out_hillshade.jpg)
+![Description](out_hillshade.jpg)
 
 
 ### Licensing

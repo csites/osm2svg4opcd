@@ -74,7 +74,8 @@ options:
   --sigma SIGMA      Gaussian image smoothing factor 0-5
 
 
-example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 ```
+example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --scale_z 0.3048 --sigma 5.0 
+```
 
 ![Description](obj-conformed.jpg)
 
@@ -84,9 +85,9 @@ Image from blender of the conformed terrain to the .blend created in the 'clinda
 
 * Change 1) styles.json has been expanded to include "clipper_mode": "unbreakable" or "default", which is used in the program's clip logic. Clipping_mode is for cartpaths, road, highways etc.  Typically when a cartpath, waterway, crosses or intersect,  we need to decide how to manage the interesection.  Typically this is managed by the "z-order" styles.json entry where the higher z-order remains unclipped and the lower "z-order" is clipped.   Some roads and highways regardless of z-order, are "unbreakable".   Railroad tracks are one example of a feature that should be unbreakable.  Waterways might be another.
 * Change 2) buildings are a special case entry in our styles.json.  It's optional, but if you want to outline the building floor area in your SVG using the building style.  The building style has one special option 'distance-from' which represents the number of meters from the golf course boundry (as defined in the leisure.golf_course style) to include housing outlines in your svg.  Set distance-from to 0 and no buildings except those on the course are identified.  
-* Change 3).  We have organized and named all of the Inkscape 'Layers and Objects' to be labled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML <node id="123456789') and the segment number corresponds to the clipped segment from any intersections.
+* Change 3).  We have organized and named all of the Inkscape 'Layers and Objects' to be labled as style-way_number-segment_number, so for example 'highway.residential-123456789-0' would be a residential road with way_id (corresponding to map.osm XML ``` <node id="123456789')``` and the segment number corresponds to the clipped segment from any intersections.
 * Change 4). Added background images.  In the OPCD workflow, use QGIS to create an Inside and Outside area of interest from your lidar images and export a QGIS 'XYZ tile' for Hillshade, Bing, Google and even OpenStreetmap (not the one we use unfortunately, it would have made life so much easier).  We can then export those QGIS layers as tiffs and remap the coordinate system the a WGS84 form that should match our map.osm area of interest.   You can the import these into the svg as a background image.   Then for example, one can globally change the global opacity of the SVG streets to let the background show through slightly.   This shows trees, bushes and land features to show throught.  Very useful for Hillshade images.
-* Change 5) We do some slight rounding of corners.  Many of the cartpaths and courses features from OpenStreetMap have simplified and reduced the number of linesegments near curves creating points and kinks in things like cartpaths, greens, fairways.   This program atempts to smooth them.  
+* Change 5) We do some slight rounding of corners.  Many of the cartpaths and courses features from OpenStreetMap have simplified and reduced the number of linesegments near curves creating points and kinks in things like cartpaths, greens, fairways.   This program atempts to smooth them.
 
 
 * The initial goal of this program was to take a golf course from OpenStreetMap (https://openstreetmap.org) and

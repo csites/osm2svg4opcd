@@ -78,6 +78,7 @@ example: osm2svg4opcd$ python3 ./lidar2obj.py --infile Seneca_Lidar_Outer.tif --
 '''
 
 ![Description](./obj-conformed.jpg)
+
 Image from blender of the conformed terrain to the .blend created in the 'clindar' meshing beta.
 
 ## CHANGES in v7.

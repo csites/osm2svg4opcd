@@ -18,7 +18,7 @@ import rasterio.warp
 from rasterio.warp import reproject, Resampling
 import numpy as np
 import shapely.geometry as sg
-from shapely.geometry import LineString, Polygon, MultiPolygon
+from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from shapely.ops import unary_union, split
 import traceback
 
@@ -50,7 +50,7 @@ SVG_MM_EQUIVALENCE = MM_PER_METER * METER_LENGTH
 
 SIMPLIFY_TOLERANCE = 0.1
 
-FILLET_RADIUS = 0.425  # radius used at corners of paths.
+FILLET_RADIUS = 3.0       # radius used at corners of paths.
 MAX_STROKE_WIDTH_MM = 3.0 # You tune MAX_STROKE_WIDTH_MM to match the widest line in your styles.json
 KERF_SEPARATION_MM = 0.05 
 UNBREAKABLE_KERF_MM = 0.5 # seperation to
@@ -969,86 +969,81 @@ def clip_conditional_intersections(all_features):
     return other_features + processed_line_features
 
 
-# ---------------------------------------------------------------------------------------
-# --- Clipping and Optimization FUNCTIONS D5. z_order_clip_and_finalize(all_features) ---
-# ---------------------------------------------------------------------------------------
-def z_order_clip_and_finalize(all_features):
+# -----------------------------------------------------------------------------------------------
+# --- Clipping and Optimization FUNCTIONS D5. z_order_clip_and_finalize(all_features, styles) ---
+# -----------------------------------------------------------------------------------------------
+def z_order_clip_and_finalize(all_features, styles):
     """
-    D5: Performs Z-order hole-punching and boundary clipping.
-    Smoothing is done in E-nine: process_and_write_v9_logic(grouped_geoms, styles_dict)
+    The Final Geometry Manager.
+    1. Converts Stroke-lines to Polygons (Handling Multi-part lines).
+    2. Calls process_intersections to Union and Guillotines features.
+    3. Heals geometry and clips to the map boundary.
     """
-    final_features_to_draw = []
-    polygon_features_for_zorder = []
-    
-    # 1. Buffering (Lines to Polygons)
-    for feature in all_features:
-        shape = feature['shape']
-        style_data = feature['style_data']
-        
-        if isinstance(shape, sg.LineString) and feature.get('requires_stroke_to_path'):
-            stroke_width = float(style_data['attrs'].get('stroke-width', 1.0))
-            # Create the 'pill' shape
-            current_poly = convert_stroke_to_path(
-                shape.coords,
-                stroke_width,
-                style_data['attrs'],
-                0.0  
-            )
-            if current_poly and not current_poly.is_empty:
-                feature['shape'] = current_poly   
-                polygon_features_for_zorder.append(feature)
-        elif isinstance(shape, (sg.Polygon, sg.MultiPolygon)):
-            polygon_features_for_zorder.append(feature)
-        elif isinstance(shape, sg.LineString):
-            final_features_to_draw.append(feature)
-
-    # 2. Z-Order Precedence Clipping (Higher-Z punches holes in Lower-Z)
-    sorted_polygons = sorted(polygon_features_for_zorder, key=lambda f: f['style_data']['z-order'], reverse=True)
-    clip_margin = CLIP_MARGIN_MM / MM_PER_METER  
-    
-    processed_polygons = []
-    for current_feature in sorted_polygons:
-        current_poly = current_feature['shape']
-        current_z = current_feature['style_data']['z-order']
-        current_tag = current_feature.get('osm_tag', '').lower()
-
-        for prev_feature in processed_polygons:
-            prev_z = prev_feature['style_data']['z-order']
-            clip_shape = prev_feature['shape']
-            prev_tag = prev_feature.get('osm_tag', '').lower()
-            is_unbreakable = prev_feature['style_data'].get('clipper_mode') == 'unbreakable'
-            
-            # --- THE LOGIC FILTER ---
-            # We ONLY cut if (It's Unbreakable OR higher Z) 
-            # AND the thing doing the cutting is NOT a road/path/building.
-            
-            is_infrastructure = any(x in prev_tag for x in ['highway', 'path', 'building', 'water'])
-            
-            if (is_unbreakable or prev_z > current_z) and not is_infrastructure:
-                if current_poly.intersects(clip_shape):
-                    # Apply the 'Bridge/Road Gap'
-                    gap_buffer = clip_shape.buffer(clip_margin, join_style=2)
-                    try:
-                        current_poly = current_poly.difference(gap_buffer)
-                    except:
-                        current_poly = current_poly.difference(clip_shape)
-                        
-        if not current_poly.is_empty:
-            current_feature['shape'] = current_poly
-            processed_polygons.append(current_feature)
-
-    # 3. Boundary Clip (The Guillotine)
-    final_features_to_draw.extend(processed_polygons)
+    polygon_features = []
+    final_geometry_list = []
     safe_zone = sg.box(*CLIP_BBOX)
     
-    final_output = []
-    for feature in final_features_to_draw:
-        if feature['shape'] and not feature['shape'].is_empty:
-            feature['shape'] = feature['shape'].intersection(safe_zone)
-            if not feature['shape'].is_empty:
-                final_output.append(feature)
+    # --- 1. BUFFERING: Expand lines into 2D 'Pill' Polygons ---
+    for feature in all_features:
+        shape = feature['shape']
+        tag = feature.get('tag')
+        style_info = styles.get(tag, {})
+        
+        if feature.get('requires_stroke_to_path'):
+            stroke_width = float(style_info.get('attrs', {}).get('stroke-width', 1.0))
             
-    return final_output
+            # Handle Multi-part geometries (MultiLineStrings) from prior clipping
+            parts = shape.geoms if hasattr(shape, 'geoms') else [shape]
+            buffered_parts = []
+            
+            for part in parts:
+                if part.is_empty: continue
+                # Convert specific segment to polygon
+                poly_part = convert_stroke_to_path(
+                    part.coords,
+                    stroke_width,
+                    style_info.get('attrs', {}),
+                    0.0  # No corner radius here; F3 handles final smoothing
+                )
+                if poly_part and not poly_part.is_empty:
+                    buffered_parts.append(poly_part)
+            
+            if buffered_parts:
+                # Store as single Polygon or MultiPolygon
+                feature['shape'] = sg.MultiPolygon(buffered_parts) if len(buffered_parts) > 1 else buffered_parts[0]
+                feature['requires_stroke_to_path'] = False
+                polygon_features.append(feature)
+        else:
+            # Already a polygon (Building, Water, etc.)
+            polygon_features.append(feature)
+
+    # --- 2. SORTING: Process by Z-Order ---
+    sorted_features = sorted(polygon_features, key=lambda f: styles.get(f['tag'], {}).get('z-order', 0))
+    
+    # --- 3. INTERSECTION ENGINE ---
+    print(f"INFO: Calling' process_intersections' on {len(sorted_features)} features for Unions and Guillotines...")
+    
+    for current_feat in sorted_features:
+        # Resolve peer unions and water-outset guillotines
+        new_geom = process_intersections(current_feat, sorted_features, styles)
+        
+        # --- 4. THE HEALER: Fix topological conflicts (The 'Boss' Fix) ---
+        if new_geom and not new_geom.is_empty:
+            if not new_geom.is_valid:
+                new_geom = new_geom.buffer(0)
+            
+            # --- 5. BOUNDARY CLIP: Ensure fit within SVG area ---
+            try:
+                final_shape = new_geom.intersection(safe_zone)
+            except Exception:
+                # Emergency fallback if intersection still complains
+                final_shape = new_geom.buffer(0).intersection(safe_zone)
+                
+            if final_shape and not final_shape.is_empty:
+                current_feat['shape'] = final_shape
+                final_geometry_list.append(current_feat)
+            
+    return final_geometry_list
 
 
 # -------------------------------------------------------------------------------------------------------------------
@@ -1123,7 +1118,7 @@ def generate_svg_elements(features_to_draw):
         style_data = feature['style_data']
         
         # Use the unified converter for all Shapely geometry types
-        d_attr = convert_to_svg_d(shape) 
+        d_attr = convert_to_svg_d(shape, precision=4) 
         
         if not d_attr:
             continue
@@ -1160,60 +1155,68 @@ def generate_svg_elements(features_to_draw):
     return svg_elements
 
 
-# ---------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E2. format_coords(coords)  ---
-# ---------------------------------------------------------------------
-def format_coords(coords):
-    """The Single Source of Truth for coordinate precision."""
-    return " ".join([f"{x:.4f},{y:.4f}" for x, y in coords])
+# ---------------------------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E2. format_coords(coords, precision=4) ---
+# ---------------------------------------------------------------------------------
+def format_coords(coords, precision=4):
+    """
+    E2: The Single Source of Truth. 
+    Rounds to precision and removes consecutive duplicates.
+    """
+    clean_points = []
+    last_pt = None
+    
+    for x, y in coords:
+        # Rounding here prevents 'precision leaks'
+        rx = round(x, precision)
+        ry = round(y, precision)
+        
+        # Format as string, stripping trailing zeros
+        curr_pt = f"{rx:g},{ry:g}"
+        
+        # Only add if it's different from the last point
+        if curr_pt != last_pt:
+            clean_points.append(curr_pt)
+            last_pt = curr_pt
+            
+    return " ".join(clean_points)
 
 
-# -----------------------------------------------------------------------------------------
-# --- SVG Rendering and Output FUNCTIONS E3. convert_to_svg_d(shape, is_building=False) ---
-# -----------------------------------------------------------------------------------------
-def convert_to_svg_d(shape, is_building=False):
-    if shape.is_empty:
-        return ""
+# -----------------------------------------------------------------------------------
+# --- SVG Rendering and Output FUNCTIONS E3. convert_to_svg_d(shape, precision=4) ---
+# -----------------------------------------------------------------------------------
+def convert_to_svg_d(shape, precision=4):
+    """E3: Routes all geometry through the E2 filter."""
+    if shape.is_empty: return ""
 
     if shape.geom_type == 'Polygon':
-        return _poly_to_d(shape)
+        return _poly_to_d(shape, precision)
     elif shape.geom_type == 'MultiPolygon':
-        return " ".join([_poly_to_d(p) for p in shape.geoms])
-    elif shape.geom_type == 'LineString':
-        return _line_to_d(shape) # Sharp lines for roads/paths
+        return " ".join([convert_to_svg_d(p, precision) for p in shape.geoms])
+    elif shape.geom_type in ('LineString', 'LinearRing'):
+        return _line_to_d(shape, precision)
     elif shape.geom_type == 'MultiLineString':
-        return " ".join([_line_to_d(ls) for ls in shape.geoms])
+        return " ".join([_line_to_d(ls, precision) for ls in shape.geoms])
     return ""
+
 
 # ---------------------------------------------------------------
 # --- SVG Rendering and Output FUNCTIONS E4. _line_to_d(line) ---  
 # ---------------------------------------------------------------
-def _line_to_d(line):
-    """Formats LineStrings. Uses Z for closed loops to ensure physical closure."""
-    coords_list = list(line.coords)
-    
-    if line.is_closed:
-        # Instead of slicing, we use the SVG 'Z' command to close the path perfectly
-        return f"M {format_coords(coords_list)} Z"
-    
-    return f"M {format_coords(coords_list)}"
+def _line_to_d(line, precision=4):
+    path = f"M {format_coords(line.coords, precision)}"
+    return path + " Z" if line.is_closed else path
+
 
 # ---------------------------------------------------------------
 # --- SVG Rendering and Output FUNCTIONS E5. _poly_to_d(poly) ---
 # ---------------------------------------------------------------
-def _poly_to_d(poly):
-    """Formats Polygons with holes using the format_coords SSOT."""
-    # Exterior - Ensure we don't double-up the last point before the Z
-    ext_coords = list(poly.exterior.coords)
-    if ext_coords[0] == ext_coords[-1]: ext_coords = ext_coords[:-1]
-    
-    d = f"M {format_coords(ext_coords)} Z"
-    
-    # Interiors (Holes)
+def _poly_to_d(poly, precision=4):
+    # We don't need to manually slice [:-1] anymore 
+    # because format_coords will naturally de-duplicate the closing point!
+    d = f"M {format_coords(poly.exterior.coords, precision)} Z"
     for interior in poly.interiors:
-        int_coords = list(interior.coords)
-        if int_coords[0] == int_coords[-1]: int_coords = int_coords[:-1]
-        d += f" M {format_coords(int_coords)} Z"
+        d += f" M {format_coords(interior.coords, precision)} Z"
     return d
 
 
@@ -1241,6 +1244,7 @@ def write_svg_file(header, background_elements, foreground_elements, filename):
         f.write('\n'.join(svg_content))
     
     print(f"✅ Success: File written with clean hierarchy to: {filename}")    
+
     
 # ---------------------------------------------------------------------------------------------
 # --- SVG File Output FUNCTIONS F2. generate_background_svg_elements(background_files, ...) ---
@@ -1311,81 +1315,116 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
 
     return svg_elements
 
-# -----------------------------------------------------------------------------------------
-# --- SVG File Output FUNCTIONS F3. process_and_write_v9_logic(output_svg, styles_dict) ---
-# -----------------------------------------------------------------------------------------
-def process_and_write_v9_logic(grouped_for_union, styles):
-    """
-    Groups features into SVG <g> layers by tag.
-    Keeps individual <path> elements separate for editing in Blender.
-    Fixes double-width stroke issues and applies Z-order sorting.
-    """
+# ---------------------------------------------------------------------------------
+# --- SVG File Output FUNCTIONS F3. process_and_write_logic(output_svg, styles) ---
+# ---------------------------------------------------------------------------------
+def process_and_write_logic(grouped_for_union, styles):
     final_svg_output = []
-    radius = FILLET_RADIUS 
-    ui_colors = [
-        "#ff0000", "#ff7f00", "#ffff00", "#00ff00", 
-        "#00ffff", "#0000ff", "#8b00ff", "#ff00ff", "#ffffff"
-    ]
-    # 1. Z-ORDER SORT: Ensure background layers are written first
+    # It's kind of odd having UI colors in the .svg but this is where the Inkscape folders get color.
+    inkscape_ui_colors = ["#ff0000", "#ff7f00", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#8b00ff", "#ff00ff", "#ffffff"]
+    
     sorted_style_keys = sorted(
         grouped_for_union.keys(),
         key=lambda k: styles.get(k, {}).get('z-order', 0)
     )
 
+    WELD_TOLERANCE = 0.0001  # 0.01mm snap for Clindar boundaries
+
     for i, style_key in enumerate(sorted_style_keys):
         features = grouped_for_union[style_key]
         if not features: continue
         
-        hex_color = ui_colors[i % len(ui_colors)]
+        processed_shapes = []
+        for feat in features:
+            shape = feat.get('shape')
+            if shape is None or shape.is_empty: continue
+            
+            # --- BRANCH 1: BUILDINGS (Strict Geometry) ---
+            if 'building' in style_key:
+                # No smoothing, no fillets. Just a weld to snap to ground.
+                shape = shape.buffer(WELD_TOLERANCE)
+            
+            # --- BRANCH 2: GOLF (Organic Geometry) ---
+            elif style_key.startswith("golf."):
+                # 1. Simplify to remove 'pointy' vertex clusters (the 'Sanitizer')
+                shape = shape.simplify(0.1, preserve_topology=True)
+                
+                # 2. Apply Chaikin to the simplified base for a smooth lozenge look
+                parts = shape.geoms if hasattr(shape, 'geoms') else [shape]
+                smoothed_parts = []
+                for part in parts:
+                    if not part.is_empty and hasattr(part, 'exterior'):
+                        ext = chaikin_smooth(list(part.exterior.coords), iterations=3)
+                        ints = [chaikin_smooth(list(i.coords), iterations=3) for i in part.interiors]
+                        smoothed_parts.append(Polygon(ext, ints))
+                
+                shape = unary_union(smoothed_parts) if smoothed_parts else shape
+                # 3. Final deduplication (Simplify 0) so Clindar doesn't see twin vertices
+                shape = shape.simplify(0.001)
+
+            # --- BRANCH 3: ROADS/AIRPORTS (Engineered Fillets) ---
+            else:
+                # 1. Apply uniform fillet to heal guillotine cuts
+                r = styles.get(style_key, {}).get('fillet_radius', FILLET_RADIUS)
+                if r > 0:
+                    shape = shape.buffer(r, join_style=1).buffer(-r, join_style=1)
+                
+                # 2. Standard road smoothing
+                shape = smooth_geometry(shape, r)
+                
+                # 3. Weld for watertight intersections
+                shape = shape.buffer(WELD_TOLERANCE)
+            
+            # Final validation pass
+            if not shape.is_valid:
+                shape = shape.buffer(0)
+            processed_shapes.append(shape)
+
+        # --- THE BIG MERGE ---
+        try:
+            unified_geom = unary_union(processed_shapes)
+            # Only contract if we actually applied the WELD_TOLERANCE
+            unified_geom = unified_geom.buffer(-WELD_TOLERANCE)
+        except Exception as e:
+            print(f"DEBUG: Union failed for {style_key}, healing...")
+            unified_geom = unary_union([s.buffer(0) for s in processed_shapes])
+          
+        if unified_geom.is_empty: continue
+
+        # --- SVG OUTPUT ---
+        hex_color = inkscape_ui_colors[i % len(inkscape_ui_colors)]
         style_info = styles.get(style_key, {})
-        is_stroke_to_path = style_info.get('stroke_to_path', False)
+        safe_style_name = style_key.replace(".", "-")
         
-        # Start an SVG Group (This becomes a "Collection" in Blender)
-        group_id = style_key.replace(".", "-")
         final_svg_output.append(
-            f'  <g id="layer-{group_id}" '
-            f'inkscape:groupmode="layer" '
-            f'inkscape:label="{style_key}" '
+            f'  <g id="layer-{safe_style_name}" '
+            f'inkscape:groupmode="layer" inkscape:label="{style_key}" '
             f'inkscape:highlight-color="{hex_color}">'
         )
+
+        parts = unified_geom.geoms if hasattr(unified_geom, 'geoms') else [unified_geom]
+        attrs = dict(style_info.get('attrs', {}))
+        if style_info.get('stroke_to_path', False):
+            attrs['stroke-width'] = "0"
+            if attrs.get('fill') == 'none' or 'fill' not in attrs:
+                attrs['fill'] = attrs.get('stroke', '#000000')
         
-        for feat in features:
-            shape = feat['shape']
-            # Here is the change: use 'way-' or 'rel-' prefix + the real OSM ID
-            osm_id = feat.get('id', 'unknown')
-            osm_type = feat.get('type', 'way') # Assumes you stored 'way' or 'relation' in Pass 1
-            
-            # Formulate a traceable ID: e.g., way-60174645
-            traceable_id = f"{osm_type}-{osm_id}"
+        attr_str = ' '.join([f'{k}="{v}"' for k, v in attrs.items()])
 
-            if shape is None or shape.is_empty: continue
-
-            # Apply smoothing
-            shape = smooth_corners_by_buffer(shape, FILLET_RADIUS, style_key.split('.')[0])
-            
-            # Attributes & Stroke-to-Path Fix
-            attrs = dict(style_info.get('attrs', {}))
-            if is_stroke_to_path:
-                attrs['stroke-width'] = "0"
-                if attrs.get('fill') == 'none' or 'fill' not in attrs:
-                    attrs['fill'] = attrs.get('stroke', '#000000')
-
-            attr_str = ' '.join([f'{k}="{v}"' for k, v in attrs.items()])
-            d_path = convert_to_svg_d(shape)
-            
+        for idx, part in enumerate(parts):
+            # Precision Snap to 5 decimals to kill the last of the micro-noise
+            d_path = convert_to_svg_d(part, precision=4)
             if d_path:
-                # Use the traceable_id here
-                path_tag = f'    <path id="{traceable_id}" {attr_str} d="{d_path}" />'
-                final_svg_output.append(path_tag)
+                path_id = f"{safe_style_name}-island-{idx}"
+                final_svg_output.append(f'    <path id="{path_id}" {attr_str} d="{d_path}" />')
 
         final_svg_output.append('  </g>')
 
     return final_svg_output
 
-
-# -------------------------------------------------------------------------------------
-# --- Geometry Series: FUNCTION G1. process_multipolygon_relation(relation, styles) ---
-# -------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G1. process_multipolygon_relation(relation, styles) ---
+# --------------------------------------------------------------------------------------
 def process_multipolygon_relation(relation, styles):
     """
     Handles OSM Multipolygons (Relations) and converts them into 
@@ -1442,8 +1481,285 @@ def process_multipolygon_relation(relation, styles):
         print(f"Error processing relation {relation.get('id')}: {e}")
         return []
 
+# ------------------------------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G2. guillotine_with_outset(target_poly, unbreakable_poly, outset_mm=1.0)  ---
+# ------------------------------------------------------------------------------------------------------------
+def guillotine_with_outset(target_poly, unbreakable_poly, outset_mm=1.0):
+    """
+    Cuts the target_poly using the unbreakable_poly, 
+    but adds a safety gap (outset) first.
+    """
+    guillotine_cutter = unbreakable_poly.buffer(outset_mm, join_style=2)
+    result = target_poly.difference(guillotine_cutter)
+    return result
+
+
+# --------------------------------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G3.  get_safe_radius(point_prev, point_curr, point_next, requested_radius)  ---
+# --------------------------------------------------------------------------------------------------------------
+def get_safe_radius(point_prev, point_curr, point_next, requested_radius):
+    """
+    Calculates a 'clamped' radius to prevent geometry spikes.
+    """
+    # Calculate segment lengths
+    dist1 = Point(point_curr).distance(Point(point_prev))
+    dist2 = Point(point_curr).distance(Point(point_next))
     
-# ------------------------------------
+    # The max safe radius is roughly half the shortest adjacent segment
+    # We use 0.4 to leave a tiny bit of 'flat' space
+    max_safe = min(dist1, dist2) * 0.4
+    
+    return min(requested_radius, max_safe)
+
+
+# ----------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G4. chaikin_smooth(points, iterations=2)  ---
+# ----------------------------------------------------------------------------
+def chaikin_smooth(points, iterations=2):
+    """
+    Applies Chaikin's corner-cutting algorithm to create organic,
+    flowing shapes from rough polygons.
+    """
+    if len(points) < 3:
+        return points
+        
+    for _ in range(iterations):
+        new_points = []
+        # Handle closed loops (polygons)
+        is_closed = (points[0] == points[-1])
+        
+        for i in range(len(points) - 1):
+            p0 = points[i]
+            p1 = points[i+1]
+            
+            # Create two new points at 25% and 75% of each segment
+            fa = [p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]
+            fb = [p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]
+            
+            new_points.extend([tuple(fa), tuple(fb)])
+            
+        if is_closed:
+            new_points.append(new_points[0])
+        else:
+            # For open paths, keep the original start and end points
+            new_points = [points[0]] + new_points + [points[-1]]
+            
+        points = new_points
+        
+    return points
+
+
+# --------------------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G5. process_intersections(current_feat, other_features, styles) ---
+# --------------------------------------------------------------------------------------------------
+def process_intersections(current_feat, other_features, styles):
+    """
+    Handles Unioning and Guillotining based on 'Z-order' and 'clipper_mode'.
+    Uses 'tag' key to match feature dictionaries.
+    """
+    geom = current_feat['shape']
+    # Safety Check: Ensure the starting geometry is valid
+    if not geom.is_valid:
+        geom = geom.buffer(0)
+        
+    style_key = current_feat.get('tag')
+    current_style = styles.get(style_key, {})
+    current_z = current_style.get('z-order', 0)
+
+    for other in other_features:
+        if current_feat['id'] == other['id']: continue
+        
+        other_shape = other['shape']
+        # Ensure 'other' is valid before comparing
+        if not other_shape.is_valid:
+            other_shape = other_shape.buffer(0)
+            
+        other_style_key = other.get('tag')
+        other_style = styles.get(other_style_key, {})
+        other_z = other_style.get('z-order', 0)
+        other_mode = other_style.get('clipper_mode', 'default')
+
+        # --- 1. PEER UNION ---
+        is_aeroway = style_key.startswith('aeroway') and other_style_key.startswith('aeroway')
+        is_highway = style_key.startswith('highway') and other_style_key.startswith('highway')
+        
+        if current_z == other_z and (style_key == other_style_key or is_aeroway or is_highway):
+            if geom.intersects(other_shape):
+                try:
+                    geom = geom.union(other_shape)
+                except Exception:
+                    # Fallback for the TopologyException
+                    geom = geom.buffer(0).union(other_shape.buffer(0))
+                
+                if "runway" in other_style_key:
+                    current_feat['tag'] = "aeroway.runway"
+                    style_key = "aeroway.runway"
+                continue 
+
+        # --- 2. THE GUILLOTINE (ie. Who's on top) ---
+        # Trigger if: 'other' is higher Z OR 'other' is unbreakable
+        if other_z > current_z or other_mode == "unbreakable":
+            
+            # Don't let roads cut the ground (leisure/golf areas), only other paths/roads
+            if not style_key.startswith('leisure') and not style_key.startswith('golf.fairway'):
+                
+                is_water = 'water' in other_style_key
+                is_unbreakable = (other_mode == "unbreakable")
+                
+                # --- THE A+ LOGIC UPDATE ---
+                # 1. Is it water? (1.0mm gap)
+                # 2. Is it unbreakable? (0.33mm gap)
+                # 3. Is it just HIGHER than me? (0.33mm gap)
+                is_higher_priority = (other_z > current_z)
+
+                if (is_water or is_unbreakable or is_higher_priority) and geom.intersects(other_shape):
+                    outset_val = 1.0 if is_water else 0.33
+                    try:
+                        # This will now catch Cartpaths (45) vs Residential (50)
+                        geom = guillotine_with_outset(geom, other_shape, outset_mm=outset_val)
+                    except Exception:
+                        geom = geom.buffer(0)
+                        geom = guillotine_with_outset(geom, other_shape.buffer(0), outset_mm=outset_val)
+    return geom
+
+# --------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G6. smooth_geometry(shape, requested_radius)  ---
+# --------------------------------------------------------------------------------
+def smooth_geometry(shape, requested_radius):
+    """
+    Intelligently smooths a polygon by calculating safe fillets 
+    for every corner to prevent geometric spikes.
+    """
+    if shape is None or shape.is_empty:
+        return shape
+
+    # Handle MultiPolygons by processing each part
+    if hasattr(shape, 'geoms'):
+        return MultiPolygon([smooth_geometry(g, requested_radius) for g in shape.geoms])
+
+    # 1. Extract the exterior points
+    coords = list(shape.exterior.coords)
+    if coords[0] == coords[-1]:
+        coords = coords[:-1]  # Work with unique vertices
+    
+    new_points = []
+    n = len(coords)
+    
+    for i in range(n):
+        p_prev = coords[i - 1]
+        p_curr = coords[i]
+        p_next = coords[(i + 1) % n]
+        
+        # 2. Apply G3 Spike Insurance
+        # This calculates the maximum possible radius for this specific corner
+        safe_r = get_safe_radius(p_prev, p_curr, p_next, requested_radius)
+        
+        # 3. Generate the Fillet Arc
+        # If safe_r is near zero, this just returns the corner point
+        corner_arc = generate_fillet_arc(p_prev, p_curr, p_next, safe_r)
+        new_points.extend(corner_arc)
+        
+    # 4. Close the polygon and handle potential interiors (holes)
+    if len(new_points) < 3:
+        return shape
+        
+    new_points.append(new_points[0])
+    smoothed_poly = Polygon(new_points)
+    
+    # Process holes if they exist using the same logic
+    if shape.interiors:
+        new_interiors = []
+        for interior in shape.interiors:
+            # We treat interiors as individual linear rings
+            int_coords = list(interior.coords)
+            # (Simplified: apply smoothing or keep as-is)
+            new_interiors.append(int_coords) 
+        return Polygon(smoothed_poly.exterior, new_interiors)
+
+    return smoothed_poly
+
+
+# ------------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G7. generate_fillet_arc(p1, p2, p3, radius, segments=5) ---
+# ------------------------------------------------------------------------------------------
+def generate_fillet_arc(p1, p2, p3, radius, segments=5):
+    """
+    Generates a list of points forming an arc to fillet the corner at p2.
+    If radius is near zero, simply returns the point p2.
+    """
+    if radius < 0.0001:
+        return [p2]
+
+    # Convert to numpy vectors for easier math
+    A = np.array(p1)
+    B = np.array(p2) # The corner vertex
+    C = np.array(p3)
+
+    # 1. Vectors for the two legs
+    v1 = A - B
+    v2 = C - B
+    
+    v1_len = np.linalg.norm(v1)
+    v2_len = np.linalg.norm(v2)
+    
+    # Normalize
+    u1 = v1 / v1_len
+    u2 = v2 / v2_len
+
+    # 2. Find the angle between the legs
+    # Angle at B = arccos(u1 dot u2)
+    dot = np.clip(np.dot(u1, u2), -1.0, 1.0)
+    angle = np.arccos(dot)
+    
+    # Half-angle for tangent calculation
+    half_angle = angle / 2.0
+    
+    # 3. Distance from corner (B) to the start/end of the arc (tangency points)
+    # dist = radius / tan(half_angle)
+    # Note: If angle is very sharp, dist becomes large (G3 prevents this!)
+    dist_to_tangent = radius / np.tan(half_angle)
+
+    # 4. Locate tangent start and end points
+    start_point = B + u1 * dist_to_tangent
+    end_point = B + u2 * dist_to_tangent
+
+    # 5. Find the Center of the Circle for the arc
+    # The center is dist_to_center away from B along the angle bisector
+    bisector = (u1 + u2)
+    bisector_norm = np.linalg.norm(bisector)
+    if bisector_norm < 1e-6:
+        return [B]
+    
+    bisector = bisector / bisector_norm
+    dist_to_center = radius / np.sin(half_angle)
+    center = B + bisector * dist_to_center
+
+    # 6. Generate arc points
+    # Find start and end angles relative to the center
+    v_start = start_point - center
+    v_end = end_point - center
+    
+    start_angle = np.arctan2(v_start[1], v_start[0])
+    end_angle = np.arctan2(v_end[1], v_end[0])
+
+    # Ensure we take the shorter path around the circle
+    if end_angle - start_angle > np.pi:
+        end_angle -= 2 * np.pi
+    elif end_angle - start_angle < -np.pi:
+        end_angle += 2 * np.pi
+
+    # Create the interpolated points
+    arc_points = []
+    for i in range(segments + 1):
+        theta = start_angle + (end_angle - start_angle) * (i / segments)
+        px = center[0] + radius * np.cos(theta)
+        py = center[1] + radius * np.sin(theta)
+        arc_points.append((float(px), float(py)))
+
+    return arc_points
+
+
+#-------------------------------------
 # --- The MAIN FUNCTION M1. main() ---
 # ------------------------------------
 def main():
@@ -1698,7 +2014,7 @@ def main():
     # c) Applies simplification/smoothing.
     
     print("INFO: Applying final Z-order polygon clipping and stroke-to-path conversion...")
-    final_features_to_draw = z_order_clip_and_finalize(all_features_after_line_clip)
+    final_features_to_draw = z_order_clip_and_finalize(all_features_after_line_clip, styles)
 
     print(f"INFO: Final feature count after Z-order processing: {len(final_features_to_draw)}")
     
@@ -1724,7 +2040,7 @@ def main():
     # 3. Generate the vector features (using F3)
     # These are the path groups (grass, roads, etc.)
     print("INFO: Unioning similar features and isolating individual paths...")
-    svg_features = process_and_write_v9_logic(grouped_for_union, styles)
+    svg_features = process_and_write_logic(grouped_for_union, styles)
 
     # 4. FINAL WRITE: Pass the two separate lists to F1
     try:

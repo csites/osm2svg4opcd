@@ -21,8 +21,8 @@
         "stroke": "#BEBEBB",
         "stroke_to_path": true,
         "stroke-width": 23,
-        "z-order": 99,
-        "clipper_mode": "unbreakable"
+        "z-order": 98,
+        "clipper_mode": "default"
     },
 
     "aeroway.taxiway": {
@@ -51,16 +51,17 @@
         "z-order": 0
     },
 
-    "highway": {
+    "highway.primary": {
         "fill": "none",
         "stroke": "#FCA328",
         "stroke_to_path": true,
-        "stroke-width": 2,
+        "stroke-width": 32,
 	"stroke-linecap": "smooth",
-	"distance-from": 250,
-        "z-order": 21,
-        "clipper_mode": "default"
+	"distance-from": 750,
+        "z-order": 55,
+        "clipper_mode": "unbreakable"
     },
+    
 
     "highway.motorway": {
         "fill": "none",
@@ -68,30 +69,41 @@
         "stroke_to_path": true, 
         "stroke-width": 13,
 	"stroke-linecap": "smooth",
-	"distance-from": 750,
-        "z-order": 21,
+	"distance-from": 300,
+        "z-order": 54,
         "clipper_mode": "unbreakable"
     },
 
+    "highway.residential": {
+        "fill": "none",
+        "stroke": "#FCA328",
+        "stroke_to_path": true,
+        "stroke-width": 8,
+	"stroke-linecap": "smooth",
+	"distance-from": 300,
+        "z-order": 50,
+        "clipper_mode": "default"
+    },
+    
     "highway.trunk": {
         "fill": "none",
         "stroke": "#FFFF00",
         "stroke_to_path": true,
         "stroke-width": 5,
 	"stroke-linecap": "smooth",
-	"distance-from": 250,
-        "z-order": 21,
+	"distance-from": 300,
+        "z-order": 30,
         "clipper_mode": "default"
     },
-
+  
     "highway.track": {
         "fill": "none",
         "stroke": "#B84127",
         "stroke_to_path": true,
         "stroke-width": 6,
 	"stroke-linecap": "smooth",
-	"distance-from": 250,
-        "z-order": 21,
+	"distance-from": 300,
+        "z-order": 30,
         "clipper_mode": "default"
     },
 
@@ -100,28 +112,17 @@
         "stroke": "#B84127",
         "stroke_to_path": true,
         "stroke-width": 3,
-        "z-order": 21,
+        "z-order": 25,
 	"stroke-linecap": "smooth",
-	"distance-from": 500,
+	"distance-from": 300,
         "clipper_mode": "default"
     },
 
-    "highway.primary": {
+    "highway": {
         "fill": "none",
         "stroke": "#FCA328",
         "stroke_to_path": true,
-        "stroke-width": 32,
-	"stroke-linecap": "smooth",
-	"distance-from": 750,
-        "z-order": 20,
-        "clipper_mode": "unbreakable"
-    },
-    
-    "highway.residential": {
-        "fill": "none",
-        "stroke": "#FCA328",
-        "stroke_to_path": true,
-        "stroke-width": 8,
+        "stroke-width": 2,
 	"stroke-linecap": "smooth",
 	"distance-from": 300,
         "z-order": 20,
@@ -155,7 +156,7 @@
         "fill": "#0000C0",
         "stroke": "none",
         "stroke-width": 0,
-        "z-order": 99
+        "z-order": 110
     },
      
     "golf.fairway": {
@@ -190,7 +191,7 @@
         "fill": "#E5E5AA",
         "stroke": "none",
         "stroke-width": 0,
-        "z-order": 70
+        "z-order": 100
     },
 
     "golf.cartpath": {
@@ -199,7 +200,7 @@
         "stroke_to_path": true,
         "stroke-width": 3,
         "stroke-linecap": "smooth",
-        "z-order": 98,
+        "z-order": 45,
         "clipper_mode": "default"
     },
 
@@ -229,6 +230,6 @@
         "stroke": "none",
         "stroke-width": 0,
         "z-order": 98,
-	"distance-from": 250
+	"distance-from": 105
     }
 }

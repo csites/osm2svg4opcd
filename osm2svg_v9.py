@@ -67,6 +67,7 @@ MAX_LON = 0.0
 SAFETY_INSET_MM = 8.0 
 CLIP_DISTANCE = 0.0  # Will hold the clip radius in METERS
 CLIP_MARGIN_MM = 0.1 # Will hold the kerf separation in MM (0.05)
+CLIP_BBOX = None      # CLIP_BBOX holds the inset boundry of our SVG
 MAP_MIN_X = 0.0      # Projected X-coordinate of the map's left edge (in meters)
 MAP_MAX_Y = 0.0      # Projected Y-coordinate of the map's top edge (in meters)
 REAL_TO_SVG_SCALE = 0.0 # The final calculated scale factor (mm/meter)
@@ -1035,6 +1036,8 @@ def z_order_clip_and_finalize(all_features, styles):
             # --- 5. BOUNDARY CLIP: Ensure fit within SVG area ---
             try:
                 final_shape = new_geom.intersection(safe_zone)
+                if not final_shape.is_empty:
+                    final_shape = sg.wkt.loads(sg.wkt.dumps(final_shape, rounding_precision=4))
             except Exception:
                 # Emergency fallback if intersection still complains
                 final_shape = new_geom.buffer(0).intersection(safe_zone)
@@ -1383,8 +1386,9 @@ def process_and_write_logic(grouped_for_union, styles):
         # --- THE BIG MERGE ---
         try:
             unified_geom = unary_union(processed_shapes)
-            # Only contract if we actually applied the WELD_TOLERANCE
             unified_geom = unified_geom.buffer(-WELD_TOLERANCE)
+            safe_zone = sg.box(*CLIP_BBOX) 
+            unified_geom = unified_geom.intersection(safe_zone)
         except Exception as e:
             print(f"DEBUG: Union failed for {style_key}, healing...")
             unified_geom = unary_union([s.buffer(0) for s in processed_shapes])
@@ -1865,7 +1869,6 @@ def main():
              'tags': way_tags
          }
          
-    CLIP_BBOX = (SAFETY_INSET_MM, SAFETY_INSET_MM, SVG_WIDTH_MM - SAFETY_INSET_MM, SVG_HEIGHT_MM - SAFETY_INSET_MM)         
     # --------------------------------------------------------------------------------
     # --- PASS 1 P1: Feature Collection (Ways & Relations) - Collect Shapely Objects ---
     # --------------------------------------------------------------------------------
@@ -1917,10 +1920,11 @@ def main():
         elif is_closed_way:
             try:
                 # Polygons get immediate safety clipping
-                way_coords_clipped = clip_polyline_to_bounds(way_coords_unclipped, *CLIP_BBOX)
-                if len(way_coords_clipped) >= 3:
-                    current_shape = sg.Polygon(way_coords_clipped)
-            except Exception: continue
+                if len(way_coords_unclipped) >= 3:
+                    current_shape = sg.Polygon(way_coords_unclipped)
+            except Exception as e:
+                print(f"DEBUG: Failed to create polygon for way {way_id}: {e}")
+                continue
         
         if current_shape and not current_shape.is_empty:
             final_osm_tag = feature_tag.split('.')[0] # e.g. 'highway'

@@ -173,8 +173,13 @@
         "stroke": "none",
         "stroke-width": 0,
         "z-order": 60,
-	"grass_border_m": 0.2,
+	"grass_border_m": 0.7,
 	"grass_border_style": "golf.semi-rough"
+    },
+    
+    "golf.semi-rough": {
+	"fill": "#36B74D",
+	"z-order": 50
     },
 
     "golf.drivingrange": {

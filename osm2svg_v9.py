@@ -984,7 +984,7 @@ def z_order_clip_and_finalize(all_features, styles):
     final_geometry_list = []
     safe_zone = sg.box(*CLIP_BBOX)
     
-    # --- 1. BUFFERING: Expand lines into 2D 'Pill' Polygons ---
+    # --- 1a. BUFFERING: Expand lines into 2D 'Pill' Polygons ---
     for feature in all_features:
         shape = feature['shape']
         tag = feature.get('tag')
@@ -1017,6 +1017,56 @@ def z_order_clip_and_finalize(all_features, styles):
         else:
             # Already a polygon (Building, Water, etc.)
             polygon_features.append(feature)
+            
+    # -- 1b. PROCEDURAL GENERATOR for Fairway around greens and semi-rough around fairways --
+    # -- This is not defined by map.osm but should be defined in the styles.json on a course by course basis.
+    # -- Regardless we need to fairway to fall under green to avoid GAP Errors in Clindar.
+    procedural_additions = []
+    for feat in polygon_features:
+        tag = feat.get('tag')
+        style_info = styles.get(tag)
+        
+        if not style_info:
+            continue
+            
+        # --- THE FIX: Look inside the 'attrs' dictionary ---
+        border_m = 0.0
+        target_tag = None
+        attributes = style_info.get('attrs', {})
+        raw_border = attributes.get('grass_border_m')
+        target_tag = attributes.get('grass_border_style')
+        
+        if raw_border is not None:
+            try:
+                border_m = float(raw_border)
+            except ValueError:    
+                border_m = 0.0
+
+        if border_m > 0 and target_tag:
+            # 1. Take the original fairway shape
+            original_fairway = feat['shape']
+            
+            # 2. Create the outset (the border)
+            # join_style=1 (Round) prevents 'spikes' on sharp fairway corners
+            outset_shape = original_fairway.buffer(border_m, join_style=1)
+            
+            # 3. THE MAGIC STEP: Union the original into the outset
+            # This ensures the Semi-Rough is a solid slab with NO HOLE 
+            # where the fairway sits.
+            solid_base_shape = outset_shape.union(original_fairway)
+            
+            if not solid_base_shape.is_empty:
+                new_feat = {
+                    'shape': solid_base_shape,
+                    'tag': target_tag, # golf.semi-rough
+                    'id': f"{feat.get('id', 'gen')}_border",
+                    'requires_stroke_to_path': False
+                }
+
+                procedural_additions.append(new_feat)
+
+    # Add the generated borders to the pool before sorting
+    polygon_features.extend(procedural_additions)
 
     # --- 2. SORTING: Process by Z-Order ---
     sorted_features = sorted(polygon_features, key=lambda f: styles.get(f['tag'], {}).get('z-order', 0))

@@ -1043,28 +1043,33 @@ def z_order_clip_and_finalize(all_features, styles):
                 border_m = 0.0
 
         if border_m > 0 and target_tag:
-            # 1. Take the original fairway shape
-            original_fairway = feat['shape']
+            # The Fairway is our reference 'Zero'
+            fairway_shape = feat['shape']
             
-            # 2. Create the outset (the border)
-            # join_style=1 (Round) prevents 'spikes' on sharp fairway corners
-            outset_shape = original_fairway.buffer(border_m, join_style=1)
+            # 1. THE OUTER EDGE (Outset)
+            # This is the visible part of the semi-rough
+            outer_edge = fairway_shape.buffer(border_m * 2, join_style=1)
             
-            # 3. THE MAGIC STEP: Union the original into the outset
-            # This ensures the Semi-Rough is a solid slab with NO HOLE 
-            # where the fairway sits.
-            solid_base_shape = outset_shape.union(original_fairway)
+            # 2. THE INNER EDGE (Inset)
+            # We move INSIDE the fairway by the same border_m 
+            # to create a deep overlap 'tuck'.
+#            inner_edge = fairway_shape.buffer(-border_m * 4, join_style=1)
+#            inner_edge = fairway_shape.buffer( -15.0, join_style=1)
             
-            if not solid_base_shape.is_empty:
+            # 3. THE PICTURE FRAME
+            # Subtract the inner hole from the outer shape
+            # picture_frame = outer_edge.difference(inner_edge)
+            picture_frame = outer_edge
+            
+            if not picture_frame.is_empty:
                 new_feat = {
-                    'shape': solid_base_shape,
+                    'shape': picture_frame,
                     'tag': target_tag, # golf.semi-rough
-                    'id': f"{feat.get('id', 'gen')}_border",
+                    'id': f"{feat.get('id', 'gen')}_frame",
                     'requires_stroke_to_path': False
                 }
-
                 procedural_additions.append(new_feat)
-
+                
     # Add the generated borders to the pool before sorting
     polygon_features.extend(procedural_additions)
 
@@ -1075,8 +1080,12 @@ def z_order_clip_and_finalize(all_features, styles):
     print(f"INFO: Calling' process_intersections' on {len(sorted_features)} features for Unions and Guillotines...")
     
     for current_feat in sorted_features:
-        # Resolve peer unions and water-outset guillotines
-        new_geom = process_intersections(current_feat, sorted_features, styles)
+        tag = current_feat.get('tag', '')
+        if tag == "golf.semi-rough":
+            new_geom = current_feat['shape'] # Skip clipping, keep the 'Slab'
+        else:
+            # Resolve peer unions and water-outset guillotines
+            new_geom = process_intersections(current_feat, sorted_features, styles)
         
         # --- 4. THE HEALER: Fix topological conflicts (The 'Boss' Fix) ---
         if new_geom and not new_geom.is_empty:

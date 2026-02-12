@@ -1036,8 +1036,6 @@ def z_order_clip_and_finalize(all_features, styles):
             # --- 5. BOUNDARY CLIP: Ensure fit within SVG area ---
             try:
                 final_shape = new_geom.intersection(safe_zone)
-                if not final_shape.is_empty:
-                    final_shape = sg.wkt.loads(sg.wkt.dumps(final_shape, rounding_precision=4))
             except Exception:
                 # Emergency fallback if intersection still complains
                 final_shape = new_geom.buffer(0).intersection(safe_zone)

@@ -30,7 +30,7 @@
         "stroke": "#BEBEBB",
         "stroke_to_path": true,
         "stroke-width": 15,
-        "z-order": 98,
+        "z-order": 97,
         "clipper_mode": "default"
     },
 
@@ -39,7 +39,7 @@
         "stroke": "#BEBEBB",
         "stroke_to_path": true,
         "stroke-width": 15,
-        "z-order": 98,
+        "z-order": 96,
         "clipper_mode": "default"
    },
      
@@ -159,11 +159,22 @@
         "z-order": 110
     },
      
+    "golf.green": {
+        "fill": "#BCE5A4",
+        "stroke": "none",
+        "stroke-width": 0,
+        "z-order": 90,
+	"grass_border_m": 0.06,
+	"grass_border_style": "golf.fairway"
+    },
+    
     "golf.fairway": {
         "fill": "#43E561",
         "stroke": "none",
         "stroke-width": 0,
-        "z-order": 60
+        "z-order": 60,
+	"grass_border_m": 0.2,
+	"grass_border_style": "golf.semi-rough"
     },
 
     "golf.drivingrange": {
@@ -180,12 +191,6 @@
         "z-order": 70
     },
 
-    "golf.green": {
-        "fill": "#BCE5A4",
-        "stroke": "none",
-        "stroke-width": 0,
-        "z-order": 90
-    },
 
     "golf.bunker": {
         "fill": "#E5E5AA",

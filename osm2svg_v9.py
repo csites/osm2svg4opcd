@@ -1078,10 +1078,13 @@ def z_order_clip_and_finalize(all_features, styles):
     
     # --- 3. INTERSECTION ENGINE ---
     print(f"INFO: Calling' process_intersections' on {len(sorted_features)} features for Unions and Guillotines...")
+    bypass_tags = ["golf.semi-rough", "aeroway.runway", "aeroway.taxiway", "aeroway.apron"]
     
     for current_feat in sorted_features:
         tag = current_feat.get('tag', '')
-        if tag == "golf.semi-rough":
+        is_generated_fringe = (tag == "golf.fairway" and "_gen" in current_feat.get('id', ''))
+         
+        if tag in bypass_tags or is_generated_fringe:
             new_geom = current_feat['shape'] # Skip clipping, keep the 'Slab'
         else:
             # Resolve peer unions and water-outset guillotines

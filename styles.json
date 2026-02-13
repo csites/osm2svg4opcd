@@ -164,7 +164,7 @@
         "stroke": "none",
         "stroke-width": 0,
         "z-order": 90,
-	"grass_border_m": 0.06,
+	"grass_border_m": 0.26,
 	"grass_border_style": "golf.fairway"
     },
     

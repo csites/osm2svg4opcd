@@ -20,6 +20,7 @@ import numpy as np
 import shapely.geometry as sg
 from shapely.geometry import Point, LineString, Polygon, MultiPolygon
 from shapely.ops import unary_union, split
+from shapely.wkt import dumps, loads
 import traceback
 
 # --- Global Configuration and Assumed Inputs ---
@@ -502,7 +503,7 @@ def convert_stroke_to_path(way_coords, stroke_width, attrs, radius):
             radius, 
             cap_style=sg.CAP_STYLE.round, 
             join_style=sg.JOIN_STYLE.round,
-            quad_segs=8
+            quad_segs=2
         )
         
         # 2. Optional: The "Fillet Trick"
@@ -1091,6 +1092,19 @@ def z_order_clip_and_finalize(all_features, styles):
             new_geom = process_intersections(current_feat, sorted_features, styles)
         
         # --- 4. THE HEALER: Fix topological conflicts (The 'Boss' Fix) ---
+        if tag.startswith("highway.") or "cartpath" in tag:
+            for cutter_feat in sorted_features:
+                c_tag = cutter_feat.get('tag', '')
+                c_style = styles.get(c_tag, {})
+                
+                # We only cut if the obstacle is 'unbreakable'
+                if c_style.get('clipper_mode') == "unbreakable":
+                    # Pull the outset from your style attributes
+                    outset_m = float(c_style.get('attrs', {}).get('clipper_outset_m', 0.5))
+                    
+                    # This keeps the logic isolated and testable
+                    new_geom = guillotine_with_outset(new_geom, cutter_feat['shape'], outset_m)
+                    
         if new_geom and not new_geom.is_empty:
             if not new_geom.is_valid:
                 new_geom = new_geom.buffer(0)
@@ -1383,15 +1397,17 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
 # ---------------------------------------------------------------------------------
 def process_and_write_logic(grouped_for_union, styles):
     final_svg_output = []
-    # It's kind of odd having UI colors in the .svg but this is where the Inkscape folders get color.
+    # Inkscape layer highlight colors
     inkscape_ui_colors = ["#ff0000", "#ff7f00", "#ffff00", "#00ff00", "#00ffff", "#0000ff", "#8b00ff", "#ff00ff", "#ffffff"]
     
+    # Sort layers by z-order defined in styles.json
     sorted_style_keys = sorted(
         grouped_for_union.keys(),
         key=lambda k: styles.get(k, {}).get('z-order', 0)
     )
 
-    WELD_TOLERANCE = 0.0001  # 0.01mm snap for Clindar boundaries
+    WELD_TOLERANCE = 0.05
+    DEFAULT_PRECISION = 2 # 1cm grid for most engineered features
 
     for i, style_key in enumerate(sorted_style_keys):
         features = grouped_for_union[style_key]
@@ -1404,58 +1420,97 @@ def process_and_write_logic(grouped_for_union, styles):
             
             # --- BRANCH 1: BUILDINGS (Strict Geometry) ---
             if 'building' in style_key:
-                # No smoothing, no fillets. Just a weld to snap to ground.
+                shape = snap_to_grid(shape, precision=DEFAULT_PRECISION)
                 shape = shape.buffer(WELD_TOLERANCE)
             
-            # --- BRANCH 2: GOLF (Organic Geometry) ---
-            elif style_key.startswith("golf."):
-                # 1. Simplify to remove 'pointy' vertex clusters (the 'Sanitizer')
-                shape = shape.simplify(0.1, preserve_topology=True)
+            # --- BRANCH 2: GOLF & NATURAL (Organic Geometry) ---
+            elif style_key.startswith("golf.") or style_key.startswith("natural."):
+                if "cartpath" in style_key:
+                    # 1. INITIAL CLEANUP (No smoothing yet)
+                    shape = snap_to_grid(shape, precision=2)  
+                    
+                    # 2. SMOOTH THE ENTIRE SEGMENT
+                    # We do this BEFORE the final 'Mitre' and 'Clipper'
+                    parts = shape.geoms if hasattr(shape, 'geoms') else [shape]
+                    smoothed_parts = []
+                    for part in parts:
+                        if not part.is_empty and hasattr(part, 'exterior'):
+                            # iterations=2 or 3 for that 'Gold Standard' ribbon
+                            ext = chaikin_smooth(list(part.exterior.coords), iterations=2)
+                            ints = [chaikin_smooth(list(i.coords), iterations=2) for i in part.interiors]
+                            smoothed_parts.append(Polygon(ext, ints))
+                    shape = unary_union(smoothed_parts) if smoothed_parts else shape
+
+                    # 3. THE "GUILLOTINE" RESTORATION
+                    # By simplifying very slightly and then using a Mitre Join (join_style=2),
+                    # we force the smoothed 'caps' to snap back to the straight edge 
+                    # of the cut line.
+                    shape = shape.simplify(0.01, preserve_topology=True)
+                    shape = shape.buffer(0, join_style=2, cap_style=2)
+                    
+                    # 4. FINAL SNAP
+                    shape = snap_to_grid(shape, precision=2)
+
+                    processed_shapes.append(shape)
+                    continue
                 
-                # 2. Apply Chaikin to the simplified base for a smooth lozenge look
+                # --- GREEN / FAIRWAY / SAND / WATER ---
+                # Use a slightly coarser sanitizer (0.1) for better smoothing results
+                shape = shape.simplify(0.1, preserve_topology=True)
+
                 parts = shape.geoms if hasattr(shape, 'geoms') else [shape]
                 smoothed_parts = []
                 for part in parts:
                     if not part.is_empty and hasattr(part, 'exterior'):
+                        # 3 iterations for high-end organic flow
                         ext = chaikin_smooth(list(part.exterior.coords), iterations=3)
                         ints = [chaikin_smooth(list(i.coords), iterations=3) for i in part.interiors]
                         smoothed_parts.append(Polygon(ext, ints))
-                
-                shape = unary_union(smoothed_parts) if smoothed_parts else shape
-                # 3. Final deduplication (Simplify 0) so Clindar doesn't see twin vertices
-                shape = shape.simplify(0.001)
 
-            # --- BRANCH 3: ROADS/AIRPORTS (Engineered Fillets) ---
+                shape = unary_union(smoothed_parts) if smoothed_parts else shape
+
+                # HIGH PRECISION SNAP: Use 1mm (Precision 3) so curves aren't blocky
+                shape = snap_to_grid(shape, precision=3)
+                shape = shape.simplify(0.005)
+
+            # --- BRANCH 3: ROADS & INFRASTRUCTURE ---
             else:
-                # 1. Apply uniform fillet to heal guillotine cuts
+                shape = snap_to_grid(shape, precision=DEFAULT_PRECISION)
                 r = styles.get(style_key, {}).get('fillet_radius', FILLET_RADIUS)
                 if r > 0:
+                    # Fillet corners
                     shape = shape.buffer(r, join_style=1).buffer(-r, join_style=1)
+                    # Snap again to clean up the dense fillet vertices
+                    shape = snap_to_grid(shape, precision=DEFAULT_PRECISION)
                 
-                # 2. Standard road smoothing
                 shape = smooth_geometry(shape, r)
-                
-                # 3. Weld for watertight intersections
                 shape = shape.buffer(WELD_TOLERANCE)
             
-            # Final validation pass
+            # Final validation before adding to merge list
             if not shape.is_valid:
                 shape = shape.buffer(0)
             processed_shapes.append(shape)
 
-        # --- THE BIG MERGE ---
+        # --- THE BIG MERGE (Layer Union) ---
         try:
+            # We don't snap everything to Precision 2 here; we keep the 
+            # individual precisions set in the branches above.
             unified_geom = unary_union(processed_shapes)
-            unified_geom = unified_geom.buffer(-WELD_TOLERANCE)
-            safe_zone = sg.box(*CLIP_BBOX) 
+            
+            # Universal 'Weld' for the whole layer to ensure manifold geometry
+            unified_geom = unified_geom.buffer(0, join_style=2, cap_style=2)
+            
+            # Clip to project bounds
+            safe_zone = sg.box(*CLIP_BBOX)  
             unified_geom = unified_geom.intersection(safe_zone)
         except Exception as e:
             print(f"DEBUG: Union failed for {style_key}, healing...")
             unified_geom = unary_union([s.buffer(0) for s in processed_shapes])
-          
+
+        # Safety: Skip writing if the layer is empty
         if unified_geom.is_empty: continue
 
-        # --- SVG OUTPUT ---
+        # --- SVG OUTPUT GENERATION ---
         hex_color = inkscape_ui_colors[i % len(inkscape_ui_colors)]
         style_info = styles.get(style_key, {})
         safe_style_name = style_key.replace(".", "-")
@@ -1468,6 +1523,8 @@ def process_and_write_logic(grouped_for_union, styles):
 
         parts = unified_geom.geoms if hasattr(unified_geom, 'geoms') else [unified_geom]
         attrs = dict(style_info.get('attrs', {}))
+        
+        # Handle stroke-to-path conversion for simulation compatibility
         if style_info.get('stroke_to_path', False):
             attrs['stroke-width'] = "0"
             if attrs.get('fill') == 'none' or 'fill' not in attrs:
@@ -1476,7 +1533,7 @@ def process_and_write_logic(grouped_for_union, styles):
         attr_str = ' '.join([f'{k}="{v}"' for k, v in attrs.items()])
 
         for idx, part in enumerate(parts):
-            # Precision Snap to 5 decimals to kill the last of the micro-noise
+            # Final SVG path output (Precision 4 is enough to keep the grid-snap exact)
             d_path = convert_to_svg_d(part, precision=4)
             if d_path:
                 path_id = f"{safe_style_name}-island-{idx}"
@@ -1485,6 +1542,7 @@ def process_and_write_logic(grouped_for_union, styles):
         final_svg_output.append('  </g>')
 
     return final_svg_output
+
 
 # --------------------------------------------------------------------------------------
 # --- Geometry Series: FUNCTIONS G1. process_multipolygon_relation(relation, styles) ---
@@ -1545,6 +1603,7 @@ def process_multipolygon_relation(relation, styles):
         print(f"Error processing relation {relation.get('id')}: {e}")
         return []
 
+
 # ------------------------------------------------------------------------------------------------------------
 # --- Geometry Series: FUNCTIONS G2. guillotine_with_outset(target_poly, unbreakable_poly, outset_mm=1.0)  ---
 # ------------------------------------------------------------------------------------------------------------
@@ -1553,11 +1612,28 @@ def guillotine_with_outset(target_poly, unbreakable_poly, outset_mm=1.0):
     Cuts the target_poly using the unbreakable_poly, 
     but adds a safety gap (outset) first.
     """
-    guillotine_cutter = unbreakable_poly.buffer(outset_mm, join_style=2)
-    result = target_poly.difference(guillotine_cutter)
+    clean_target = target_poly.buffer(0.001).buffer(-0.001)
+    blade = unbreakable_poly.buffer(outset_mm, cap_style=2, join_style=3)
+    try:
+        result = clean_target.difference(blade)
+    except:
+        # Fallback for stubborn geometry
+        result = clean_target.buffer(0).difference(blade.buffer(0))
+        
+    if result.is_empty:
+        return result
+
+    # Clean up corners and overly dense vertices.
+    result = result.simplify(0.01, preserve_topology=True)
+    result = result.buffer(0, join_style=2, cap_style=2)
+    if isinstance(result, (sg.MultiPolygon, sg.GeometryCollection)):
+       result = sg.MultiPolygon([p for p in result.geoms if p.area > 0.15])
+    elif result.area < 0.15:  # equiv to 15cm real distance.
+        return sg.Polygon()
+
     return result
 
-
+ 
 # --------------------------------------------------------------------------------------------------------------
 # --- Geometry Series: FUNCTIONS G3.  get_safe_radius(point_prev, point_curr, point_next, requested_radius)  ---
 # --------------------------------------------------------------------------------------------------------------
@@ -1576,41 +1652,52 @@ def get_safe_radius(point_prev, point_curr, point_next, requested_radius):
     return min(requested_radius, max_safe)
 
 
-# ----------------------------------------------------------------------------
-# --- Geometry Series: FUNCTIONS G4. chaikin_smooth(points, iterations=2)  ---
-# ----------------------------------------------------------------------------
-def chaikin_smooth(points, iterations=2):
+# ------------------------------------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G4. chaikin_smooth(geom, iterations=2, simplify_tolerance=0.1, final_snap=0.01) ---
+# ------------------------------------------------------------------------------------------------------------------
+def chaikin_smooth(geom, iterations=2, simplify_tolerance=0.1, final_snap=0.1):
     """
-    Applies Chaikin's corner-cutting algorithm to create organic,
-    flowing shapes from rough polygons.
+    Safely handles both Shapely Geometries and raw coordinate lists.
     """
-    if len(points) < 3:
-        return points
+    if iterations == 0 or geom is None:
+        return geom
+
+    # --- 1. THE LIST HANDLER (No .simplify() allowed here!) ---
+    if isinstance(geom, list):
+        pts = list(geom)
+        if len(pts) < 3: return pts
         
-    for _ in range(iterations):
-        new_points = []
-        # Handle closed loops (polygons)
-        is_closed = (points[0] == points[-1])
+        for _ in range(iterations):
+            new_pts = []
+            for i in range(len(pts) - 1):
+                p0, p1 = pts[i], pts[i+1]
+                fa = (0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1])
+                fb = (0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1])
+                new_pts.extend([fa, fb])
+            if pts[0] == pts[-1]:
+                new_pts.append(new_pts[0])
+            pts = new_pts
+        return pts
+
+    # --- 2. THE GEOMETRY HANDLER (Safe to use .simplify() here) ---
+    # We only reach this if geom is NOT a list.
+    clean_geom = geom.simplify(simplify_tolerance, preserve_topology=True)
+
+    if clean_geom.geom_type == 'MultiPolygon':
+        # Recursively call itself for each part
+        return sg.MultiPolygon([chaikin_smooth(p, iterations, simplify_tolerance, final_snap) for p in clean_geom.geoms])
+
+    if clean_geom.geom_type == 'Polygon':
+        # Now we pass the coordinates back into the LIST HANDLER (Case 1)
+        new_ext = chaikin_smooth(list(clean_geom.exterior.coords), iterations)
+        new_ints = [chaikin_smooth(list(hole.coords), iterations) for hole in clean_geom.interiors]
         
-        for i in range(len(points) - 1):
-            p0 = points[i]
-            p1 = points[i+1]
-            
-            # Create two new points at 25% and 75% of each segment
-            fa = [p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]
-            fb = [p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]
-            
-            new_points.extend([tuple(fa), tuple(fb)])
-            
-        if is_closed:
-            new_points.append(new_points[0])
-        else:
-            # For open paths, keep the original start and end points
-            new_points = [points[0]] + new_points + [points[-1]]
-            
-        points = new_points
+        smoothed_poly = sg.Polygon(new_ext, new_ints)
         
-    return points
+        # Final pass to kill micro-segments (The 'Anti-Spike' pass)
+        return smoothed_poly.simplify(final_snap, preserve_topology=True)
+
+    return clean_geom
 
 
 # --------------------------------------------------------------------------------------------------
@@ -1685,6 +1772,7 @@ def process_intersections(current_feat, other_features, styles):
                         geom = geom.buffer(0)
                         geom = guillotine_with_outset(geom, other_shape.buffer(0), outset_mm=outset_val)
     return geom
+
 
 # --------------------------------------------------------------------------------
 # --- Geometry Series: FUNCTIONS G6. smooth_geometry(shape, requested_radius)  ---
@@ -1821,6 +1909,70 @@ def generate_fillet_arc(p1, p2, p3, radius, segments=5):
         arc_points.append((float(px), float(py)))
 
     return arc_points
+
+
+# -------------------------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G8. clean_cartpath_geometry(shape, tolerance=0.01) ---
+# -------------------------------------------------------------------------------------
+def clean_cartpath_geometry(shape, tolerance=0.01):
+    """
+    Cleans up 'stacked' diamonds at corners and remove micro-needles.
+    tolerance: 0.01 represents 1cm.
+    """
+    if shape.is_empty:
+        return shape
+
+    # 1. Snap to a 1cm grid (Rounding)
+    # This forces 'stacked' nodes to have the exact same coordinates
+    def snap_coords(geom):
+        return Polygon([(round(x, 3), round(y, 3)) for x, y in geom.exterior.coords])
+    
+    # 2. Use simplify to 'Weld' the points
+    # preserve_topology=True ensures we don't accidentally delete the whole path
+    shape = shape.simplify(tolerance, preserve_topology=True)
+
+    # 3. The "Strict" Buffer Clean
+    # This is the programmatic version of Inkscape's 'Join Nodes'
+    shape = shape.buffer(0, join_style=2, cap_style=2)
+    
+    return shape
+
+
+# -----------------------------------------------------------------------
+# --- Geometry Series: FUNCTIONS G9. snap_to_grid(geom, precision=2)  ---
+# -----------------------------------------------------------------------
+def snap_to_grid(geom, precision=2):
+    if geom is None or geom.is_empty:
+        return geom
+    # dumps/loads is a 'secret' trick to force rounding across all vertices
+    return loads(dumps(geom, rounding_precision=precision))
+
+
+# ---------------------------------------------------------------------------------------------------
+# --- Architectural Series: FUNCTIONS H1. process_organic_cartpath(shape, bridge_cut_points=None) ---
+# ---------------------------------------------------------------------------------------------------
+def process_organic_cartpath(shape, bridge_cut_points=None):
+    # 1. PRE-CLEAN: Snap the raw geometry to the grid
+    # This ensures the 'stacks' are gone before we start smoothing
+    shape = snap_to_grid(shape, precision=2) 
+    
+    # 2. SELECTIVE SMOOTHING
+    # If we want to be fancy, we only smooth the long sides.
+    # But a simpler way: Simplify first to remove noise, then smooth.
+    # The simplification at 0.05 removes the 'fingers'.
+    base_for_smoothing = shape.simplify(0.05, preserve_topology=True)
+    
+    # Apply Chaikin (Reduced to 2 iterations to prevent vertex bloat)
+    smoothed = chaikin_smooth_geom(base_for_smoothing, iterations=2)
+    
+    # 3. THE "WELD": Final Quantization
+    # This turns the organic curves into a clean, grid-aligned path
+    # 0.01 (1cm) is the sweet spot for GSPro/Unity.
+    final_shape = snap_to_grid(smoothed, precision=2)
+    
+    # 4. FLAT CAP ENFORCEMENT
+    # One last buffer(0) with Mitre joins to ensure the caps didn't round
+    return final_shape.buffer(0, join_style=2, cap_style=2)
 
 
 #-------------------------------------

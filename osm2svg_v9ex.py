@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-osm2svg_v9.py takes map.osm and coverts it to out.svg with parameters set at the command-line and specified in styles.json.
-This version was updated to handle the the map.osm from the Overpass API as well as export directly from OpenStreetMap.org.
-The out.svg is designed for the new beta-Clender program.  This version also scales and clips map.osm features to the the
-coordinates specified in the map.osm download.  Additionally, it sets the Default SVG scale to be 1 meter = 1 mm of SVG units
-per OPCD recomendations.  
+osm2svg_v9ex.py Experimental.  Shift coordinates system to the center
+0,0 as the center of our map.  Takes map.osm and coverts it to out.svg
+with parameters set at the command-line and specified in styles.json.
+This version was updated to handle the the map.osm from the Overpass
+API as well as export directly from OpenStreetMap.org.  The out.svg is
+designed for the new beta-Clender program.  This version also scales
+and clips map.osm features to the the coordinates specified in the
+map.osm download.  Additionally, it sets the Default SVG scale to be 1
+meter = 1 mm of SVG units per OPCD recomendations.
 """
 
 import xml.etree.ElementTree as ET
@@ -190,86 +194,67 @@ def calculate_and_set_projection(min_lat, max_lat, min_lon, max_lon):
 # --- Setup and Configuration FUNCTIONS: A3. generate_svg_header_from_bounds(min_lat, max_lat, min_lon, max_lon) ---
 # ------------------------------------------------------------------------------------------------------------------
 def generate_svg_header_from_bounds(min_lat, max_lat, min_lon, max_lon):
-    """
-    Calculates the final SVG dimensions and generates the complete SVG root tag.
-    """
     global SVG_WIDTH_MM, SVG_HEIGHT_MM
-    
-    # 1. Get all global projection/scale factors.
     map_width_m, map_height_m, REAL_TO_SVG_SCALE = calculate_and_set_projection(min_lat, max_lat, min_lon, max_lon)
     
-    # 2. Define the SVG's physical size (still massive in mm for scale accuracy)
-    width_mm_val = round(SVG_WIDTH_MM, 4)   # SVG Units.
-    height_mm_val = round(SVG_HEIGHT_MM, 4) 
-    map_width_m = round(SVG_WIDTH_MM / REAL_TO_SVG_SCALE, 4) 
-    map_height_m = round(SVG_HEIGHT_MM / REAL_TO_SVG_SCALE, 4) 
+    width_mm_val = round(SVG_WIDTH_MM, 4)   
+    height_mm_val = round(SVG_HEIGHT_MM, 4)  
 
-    # 3. Set viewBox coordinates (in Meters).
-    viewbox = f"0 0 {width_mm_val} {height_mm_val}"
-    svg_header = (
-        f'<svg width="{SVG_WIDTH_MM}mm" height="{SVG_HEIGHT_MM}mm" '
-        f'viewBox="0 0 {SVG_WIDTH_MM} {SVG_HEIGHT_MM}" '
-        'xmlns="http://www.w3.org/2000/svg" '
-        'xmlns:xlink="http://www.w3.org/1999/xlink" '
-        'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" ' 
-        'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape">\n'
-    )
+    # Define the "Zero-Origin" ViewBox
+    min_x = -(width_mm_val / 2)
+    min_y = -(height_mm_val / 2)
+    viewbox_str = f"{min_x} {min_y} {width_mm_val} {height_mm_val}"
     
-    # Many of necessary globals are already set by A2.
-    return header, map_width_m, map_height_m, REAL_TO_SVG_SCALE    
+    svg_header = (
+        f'<svg width="{width_mm_val}mm" height="{height_mm_val}mm" '
+        f'viewBox="{viewbox_str}" '
+        'xmlns="http://www.w3.org/2000/svg" ...>\n'
+    )
+    return svg_header, map_width_m, map_height_m, REAL_TO_SVG_SCALE
 
 
 # --------------------------------------------------------------------------------------
 # --- B1. generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon) ---
 # --------------------------------------------------------------------------------------
 def generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon):
-    """
-    Calculates the projection factors and creates the SVG XML header.
-    Sets the global coordinate system to Millimeters (1 unit = 1mm).
-    """
     global MIN_LAT, MAX_LAT, MIN_LON, MAX_LON
     global METERS_PER_DEGREE_LAT_FACTOR, METERS_PER_DEGREE_LON_FACTOR
     global SVG_WIDTH_MM, SVG_HEIGHT_MM, MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE
 
-    # Store bounds globally for use in other B-series functions
     MIN_LAT, MAX_LAT = minlat, maxlat
     MIN_LON, MAX_LON = minlon, maxlon
 
-    # 1. Calculate the 'Flat Earth' projection factors at this specific latitude
-    # 1 degree of latitude is roughly 111,320 meters
     METERS_PER_DEGREE_LAT_FACTOR = 111320.0
-    # Longitude length shrinks as you move toward the poles
     avg_lat_rad = math.radians((minlat + maxlat) / 2.0)
     METERS_PER_DEGREE_LON_FACTOR = METERS_PER_DEGREE_LAT_FACTOR * math.cos(avg_lat_rad)
 
-    # 2. Determine Real World Dimensions in Meters
     map_width_m = (maxlon - minlon) * METERS_PER_DEGREE_LON_FACTOR
     map_height_m = (maxlat - minlat) * METERS_PER_DEGREE_LAT_FACTOR
 
-    # 3. Scale Factor: 1.0 means 1 meter = 1mm (1:1000 scale)
-    REAL_TO_SVG_SCALE = 1.0 
-    
-    # Calculate Final SVG Paper Size
+    REAL_TO_SVG_SCALE = 1.0  
     SVG_WIDTH_MM = map_width_m * REAL_TO_SVG_SCALE
     SVG_HEIGHT_MM = map_height_m * REAL_TO_SVG_SCALE
 
-    # 4. Establish the 'Origin' for the coordinate math
-    # Map Min X is the leftmost Longitude; Map Max Y is the topmost Latitude (SVG 0 is top)
-    MAP_MIN_X = MIN_LON
-    MAP_MAX_Y = MAX_LAT
+    # --- ZERO-CENTER LOGIC ---
+    # We define the origin (0,0) as the geographical center of your map bounds.
+    MAP_MIN_X = (minlon + maxlon) / 2.0
+    MAP_MAX_Y = (minlat + maxlat) / 2.0
+
+    # The ViewBox must now start at negative half-width/height
+    min_view_x = -(SVG_WIDTH_MM / 2.0)
+    min_view_y = -(SVG_HEIGHT_MM / 2.0)
 
     header = (
         f'<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
         f'<svg width="{SVG_WIDTH_MM}mm" height="{SVG_HEIGHT_MM}mm" '
-        f'viewBox="0 0 {SVG_WIDTH_MM} {SVG_HEIGHT_MM}"\n'
+        f'viewBox="{min_view_x} {min_view_y} {SVG_WIDTH_MM} {SVG_HEIGHT_MM}"\n'
         f'  xmlns="http://www.w3.org/2000/svg"\n'
         f'  xmlns:xlink="http://www.w3.org/1999/xlink"\n'
         f'  xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"\n'
         f'  xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">\n'
-        f'\n'
     )
     
-    print(f"INFO: SVG Dimensions: {SVG_WIDTH_MM:.2f}mm x {SVG_HEIGHT_MM:.2f}mm")
+    print(f"INFO: ZERO-CENTERED SVG Dimensions: {SVG_WIDTH_MM:.2f}mm x {SVG_HEIGHT_MM:.2f}mm")
     return header, map_width_m, map_height_m, REAL_TO_SVG_SCALE
 
 
@@ -278,14 +263,20 @@ def generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon):
 # --------------------------------------------------------------------------------------
 def project_lon_lat(lon, lat):
     """
-    The core transformer. Converts a single Lon/Lat point into SVG X/Y.
-    X increases to the right. Y increases downward.
+    Converts Lon/Lat to Zero-Centered, Rotated SVG X/Y.
+    Fixes the 90-degree rotation seen in the Clinder/OBJ handshake.
     """
-    x = (lon - MAP_MIN_X) * METERS_PER_DEGREE_LON_FACTOR * REAL_TO_SVG_SCALE
-    # In SVG, Y=0 is the top. So we subtract current lat from the MAX (top) latitude.
-    y = (MAP_MAX_Y - lat) * METERS_PER_DEGREE_LAT_FACTOR * REAL_TO_SVG_SCALE
-    return x, y
-
+    # 1. Calculate the distance in meters from our center point (MAP_MIN_X, MAP_MAX_Y)
+    delta_lon_m = (lon - MAP_MIN_X) * METERS_PER_DEGREE_LON_FACTOR * REAL_TO_SVG_SCALE
+    delta_lat_m = (lat - MAP_MAX_Y) * METERS_PER_DEGREE_LAT_FACTOR * REAL_TO_SVG_SCALE
+    
+    # 2. To rotate 90 degrees Counter-Clockwise (to fix your 90-deg Clockwise error):
+    # Standard: x = lon, y = -lat
+    # Rotated: x = lat, y = lon
+    svg_x = delta_lon_m
+    svg_y = -delta_lat_m 
+    
+    return svg_x, svg_y
 
 # --------------------------------------------------------------------------------------
 # --- B3. get_way_coordinates(way_id) ---
@@ -1386,10 +1377,13 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
                 with rasterio.open(temp_filename, 'w', **out_meta) as dst:
                     dst.write(destination)
 
-                # --- ALIGNMENT & IDENTITY FIX ---
-                # Added the unique ID here
+                # NEW: Calculate the top-left corner based on the centered viewBox
+                # If the center is 0,0, the top-left is -(width/2) and -(height/2)
+                centered_x = -(svg_width / 2.0)
+                centered_y = -(svg_height / 2.0)
+
                 svg_elements.append(
-                    f'    <image id="{clean_id}" x="0.0000" y="0.0000" '
+                    f'    <image id="{clean_id}" x="{centered_x:.4f}" y="{centered_y:.4f}" '
                     f'width="{svg_width:.4f}" height="{svg_height:.4f}" '
                     f'xlink:href="file:///{os.path.abspath(temp_filename)}" '
                     f'preserveAspectRatio="none" />'
@@ -2104,9 +2098,13 @@ def main():
     minlon, maxlon = float(b.get('minlon')), float(b.get('maxlon'))
         
     svg_header, map_width_m, map_height_m, REAL_TO_SVG_SCALE = generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon)
-        
+
+    # Centered bounding bbox to  0,0 as the center, we calculate half-extents minus the safety inset.
+    half_w = (SVG_WIDTH_MM / 2.0) - SAFETY_INSET_MM
+    half_h = (SVG_HEIGHT_MM / 2.0) - SAFETY_INSET_MM
+    CLIP_BBOX = (-half_w, -half_h, half_w, half_h)        
     # Define the bounding box for clipping (using calculated SVG size - SAFETY_INSET_MM) 
-    CLIP_BBOX = (SAFETY_INSET_MM, SAFETY_INSET_MM, SVG_WIDTH_MM - SAFETY_INSET_MM, SVG_HEIGHT_MM - SAFETY_INSET_MM)
+    # CLIP_BBOX = (SAFETY_INSET_MM, SAFETY_INSET_MM, SVG_WIDTH_MM - SAFETY_INSET_MM, SVG_HEIGHT_MM - SAFETY_INSET_MM)
 
     # Load nodes and ways into memory
     nodes = {node.get('id'): (float(node.get('lon')), float(node.get('lat')))

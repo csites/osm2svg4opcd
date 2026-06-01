@@ -137,6 +137,32 @@ def parse_arguments():
         help='Path to the fourth GeoTIFF image file for the background.'
     )
 
+    # Add outer_background images.  The are the OPCD Outer images"
+    parser.add_argument(
+        '--outer_background1', 
+        type=str, 
+        default=None, 
+        help='Path to the first GeoTIFF image file for the background.'
+    )
+    parser.add_argument(
+        '--outer_background2', 
+        type=str, 
+        default=None, 
+        help='Path to the second GeoTIFF image file for the background.'
+    )
+    parser.add_argument(
+        '--outer_background3', 
+        type=str, 
+        default=None, 
+        help='Path to the third GeoTIFF image file for the background.'
+    )
+    parser.add_argument(
+        '--outer_background4', 
+        type=str, 
+        default=None, 
+        help='Path to the fourth GeoTIFF image file for the background.'
+    )
+
     return parser.parse_args()
 
 
@@ -1336,29 +1362,36 @@ def write_svg_file(header, background_elements, foreground_elements, filename):
 # ---------------------------------------------------------------------------------------------
 # --- SVG File Output FUNCTIONS F2. generate_background_svg_elements(background_files, ...) ---
 # ---------------------------------------------------------------------------------------------
-def generate_background_svg_elements(background_files, svg_width, svg_height, 
+def generate_background_svg_elements(background_files, outer_background_files, svg_width, svg_height,  
+                                     inner_mwxh, outer_mwxh,
                                      MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE,
-                                     MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, 
-                                     METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR):
+                                     MIN_LAT, MAX_LAT, MIN_LON, MAX_LON,  
+                                     METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR,
+                                     OUTER_MIN_LAT=None, OUTER_MAX_LAT=None, OUTER_MIN_LON=None, OUTER_MAX_LON=None):
     """
-    Reprojects and clips the GeoTIFF to the exact degree-bounds of the map.
-    Places the resulting PNG at SVG origin (0,0) without units to match vector scaling.
+    Reprojects and clips GeoTIFFs to exact degree-bounds.
+    Places Inner images at SVG origin (0,0).
+    Places Outer images calculated with negative space transforms to maintain a shared center anchor.
     Wraps background images names in a group as a named Inkscape Layer.    
     """
-    # Start the Group/Layer tag
     svg_elements = []
-    
     dst_crs = 'EPSG:4326'
     
+    # 1. Calculate the negative space offset for the outer layer images
+    inner_w = float(inner_mwxh)   # e.g., 2000.0
+    outer_w = float(outer_mwxh)   # e.g., 4000.0
+    bg_offset = (inner_w - outer_w) / 2.0  # yields -1000.0 for standard setup
+
+    # --- LOOP A: PROCESS STANDARD INNER BACKGROUND IMAGES ---
     for filename in background_files:
+        if not filename: continue
         try:
-            # 1. Clean the ID: /path/to/Seneca_hillshade.tif -> Seneca_hillshade
             base_name = os.path.basename(filename)
             clean_id = os.path.splitext(base_name)[0]
 
             with rasterio.open(filename) as src:
                 temp_filename = filename.replace(".tif", "_aligned.png")
-                out_width = 2000  
+                out_width = int(inner_w)  
                 out_height = int(out_width * (svg_height / svg_width))
                 
                 dst_transform = rasterio.transform.from_bounds(
@@ -1368,13 +1401,9 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
                 destination = np.zeros((src.count, out_height, out_width), dtype=src.meta['dtype'])
                 for i in range(1, src.count + 1):
                     reproject(
-                        source=rasterio.band(src, i),
-                        destination=destination[i-1],
-                        src_transform=src.transform,
-                        src_crs=src.crs,
-                        dst_transform=dst_transform,
-                        dst_crs=dst_crs,
-                        resampling=Resampling.bilinear
+                        source=rasterio.band(src, i), destination=destination[i-1],
+                        src_transform=src.transform, src_crs=src.crs,
+                        dst_transform=dst_transform, dst_crs=dst_crs, resampling=Resampling.bilinear
                     )
 
                 out_meta = src.meta.copy()
@@ -1386,21 +1415,69 @@ def generate_background_svg_elements(background_files, svg_width, svg_height,
                 with rasterio.open(temp_filename, 'w', **out_meta) as dst:
                     dst.write(destination)
 
-                # --- ALIGNMENT & IDENTITY FIX ---
-                # Added the unique ID here
+                # Inner files drop right at 0,0 alignment bounds
                 svg_elements.append(
                     f'    <image id="{clean_id}" x="0.0000" y="0.0000" '
-                    f'width="{svg_width:.4f}" height="{svg_height:.4f}" '
+                    f'width="{inner_w:.4f}" height="{inner_w:.4f}" '
                     f'xlink:href="file:///{os.path.abspath(temp_filename)}" '
-                    f'preserveAspectRatio="none" />'
+                    f'preserveAspectRatio="none" inkscape:label="{clean_id}" />'
+                )
+                print(f"Successfully aligned Inner Plate: {temp_filename} as ID: {clean_id}")
+        except Exception as e:
+            print(f"Error processing inner background {filename}: {e}")
+
+    # --- LOOP B: PROCESS OUTER BACKGROUND IMAGES (With Offset) ---
+    for filename in outer_background_files:
+        if not filename: continue
+        try:
+            base_name = os.path.basename(filename)
+            clean_id = os.path.splitext(base_name)[0] + "_outer"
+
+            with rasterio.open(filename) as src:
+                temp_filename = filename.replace(".tif", "_outer_aligned.png")
+                out_width = int(outer_w)  
+                out_height = int(out_width * (svg_height / svg_width))
+                
+                # Use outer latitude/longitude bounding limits if provided, else fall back to source bounds
+                lat_min = OUTER_MIN_LAT if OUTER_MIN_LAT is not None else MIN_LAT
+                lat_max = OUTER_MAX_LAT if OUTER_MAX_LAT is not None else MAX_LAT
+                lon_min = OUTER_MIN_LON if OUTER_MIN_LON is not None else MIN_LON
+                lon_max = OUTER_MAX_LON if OUTER_MAX_LON is not None else MAX_LON
+
+                dst_transform = rasterio.transform.from_bounds(
+                    lon_min, lat_min, lon_max, lat_max, out_width, out_height
                 )
                 
-                print(f"Successfully aligned: {temp_filename} as ID: {clean_id}")
+                destination = np.zeros((src.count, out_height, out_width), dtype=src.meta['dtype'])
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i), destination=destination[i-1],
+                        src_transform=src.transform, src_crs=src.crs,
+                        dst_transform=dst_transform, dst_crs=dst_crs, resampling=Resampling.bilinear
+                    )
 
+                out_meta = src.meta.copy()
+                out_meta.update({
+                    "driver": "PNG", "height": out_height, "width": out_width,
+                    "transform": dst_transform, "crs": dst_crs, "count": src.count
+                })
+
+                with rasterio.open(temp_filename, 'w', **out_meta) as dst:
+                    dst.write(destination)
+
+                # Outer plates get written with negative offsets and expanded outer sizes
+                svg_elements.append(
+                    f'    <image id="{clean_id}" x="{bg_offset:.4f}" y="{bg_offset:.4f}" '
+                    f'width="{outer_w:.4f}" height="{outer_w:.4f}" '
+                    f'xlink:href="file:///{os.path.abspath(temp_filename)}" '
+                    f'preserveAspectRatio="none" opacity="0.5" inkscape:label="{clean_id}" />'
+                )
+                print(f"Successfully aligned Outer Plate: {temp_filename} as ID: {clean_id}")
         except Exception as e:
-            print(f"Error processing {filename}: {e}")
+            print(f"Error processing outer background {filename}: {e}")
 
     return svg_elements
+
 
 # ---------------------------------------------------------------------------------
 # --- SVG File Output FUNCTIONS F3. process_and_write_logic(output_svg, styles) ---
@@ -1824,9 +1901,17 @@ def smooth_geometry(shape, requested_radius):
     # 4. Close the polygon and handle potential interiors (holes)
     if len(new_points) < 3:
         return shape
+    
+    if not np.array_equal(new_points[0], new_points[-1]):
+        new_points = np.vstack([new_points, [new_points[0]]])
+            
+    # new_points.append(new_points[0])
+    try:
+        smoothed_poly = Polygon(new_points)
         
-    new_points.append(new_points[0])
-    smoothed_poly = Polygon(new_points)
+    except Exception as e:
+        print(f"DEBUG: Smoothing failed for a feature, skipping smoothing. Error: {e}")
+        return shape 
     
     # Process holes if they exist using the same logic
     if shape.interiors:
@@ -2039,9 +2124,17 @@ def main():
         args.background4
     ]
     
+    background_files = [
+        args.outer_background1,
+        args.outer_background2,
+        args.outer_background3,
+        args.outer_background4
+    ]
+    
     # Filter out None values
     background_files = [f for f in background_files if f is not None]
-
+    outer_background_files = [f for f in outer_background_files if f is not None]
+    
     # Load and Parse Style File
     styleDef = {}
     try:
@@ -2280,11 +2373,23 @@ def main():
     # --- PASS 3 P3: Generate SVG, Sort and Write to File (New, Streamlined) ---
     # --------------------------------------------------------------------------
     background_svg_elements = generate_background_svg_elements(
-        background_files, SVG_WIDTH_MM, SVG_HEIGHT_MM,
-        MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE,
-        MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, 
-        METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR
+        background_files=background_files, 
+        outer_background_files=outer_background_files, 
+        svg_width=SVG_WIDTH_MM, 
+        svg_height=SVG_HEIGHT_MM,
+        inner_mwxh=args.inner_mwxh,                   
+        outer_mwxh=args.outer_mwxh,                   
+        MAP_MIN_X=MAP_MIN_X, 
+        MAP_MAX_Y=MAP_MAX_Y, 
+        REAL_TO_SVG_SCALE=REAL_TO_SVG_SCALE,
+        MIN_LAT=minlat,                               
+        MAX_LAT=maxlat, 
+        MIN_LON=minlon, 
+        MAX_LON=maxlon,   
+        METERS_PER_DEGREE_LON_FACTOR=METERS_PER_DEGREE_LON,
+        METERS_PER_DEGREE_LAT_FACTOR=METERS_PER_DEGREE_LAT
     )
+    
     background_svg_elements.reverse()
 
     # 2. GROUPING FOR UNION (Standard logic)

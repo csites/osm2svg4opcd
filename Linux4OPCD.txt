@@ -1,0 +1,107 @@
+If your one of the few Linux types that wants to build a course for OPCD on Linux, it can be down with a combination of Native application, Wine, and Winboat.  This document will try to help put the commands needed to get you to the point you can publish your beta course.
+
+First, the OPCD tools recommend the following;
+QGIS (LINUX NATIVE)  -  Geographic Information System
+
+sudo apt update
+sudo apt install ca-certificates gnupg lsb-release software-properties-common
+sudo mkdir -p /etc/apt/keyrings
+sudo wget -O /etc/apt/keyrings/qgis-archive-keyring.gpg https://download.qgis.org/downloads/qgis-archive-keyring.gpg
+echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/qgis-archive-keyring.gpg] https://qgis.org/ubuntu-ltr \
+$(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/qgis.list > /dev/null
+
+sudo apt update
+
+sudo apt install qgis
+
+     qgis                      qgis-plugin-grass-common  qgis-server-common        qgis-server-wms
+     qgis3-survex-import       qgis-provider-grass       qgis-server-dummy         qgis-server-wmts
+     qgis-api-doc              qgis-providers            qgis-server-landingpage   qgis-sip
+     qgis-common               qgis-providers-common     qgis-server-wcs  
+     qgis-dbg                  qgis-server               qgis-server-wfs  
+     qgis-plugin-grass         qgis-server-bin           qgis-server-wfs3
+
+
+==============
+TO REMOVE QGIS
+sudo apt --purge remove qgis*
+sudo rm /etc/apt/sources.list.d/qgis*
+sudo apt autoremove
+sudo apt update
+
+INKSCAPE (LINUX NATIVE) - Inkscape Scalable Vector Graphics
+sudo apt update
+sudo apt install inkscape
+
+BLENDER (LINUX NATIVE) -- Blender 3D Modelling package
+sudo apt update
+sudo apt install blender
+
+Unity Editor (LINUX NATIVE) -- Unity 3D Game Editor. 
+wget -qO - https://hub.unity3d.com/linux/keys/public | sudo gpg --dearmor -o /usr/share/keyrings/Unity
+# Add Archive
+sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" > /etc/apt/sources.list.d/unityhub.list'
+sudo apt update
+sudo apt install unityhub
+# This may work.
+unity-hub unityhub://2018.2.8f1/cb6e3408ec90
+# If not
+For OPCD we need Unity 2018.2.8.f1 (Unity-2018.2.8f1.tar.xz) 
+This has to be downloaded from the Unity Download Archive (https://unity.com/releases/editor/archive);
+  1. Click on the 2018 tab
+  2. Scroll down to the 2018.2.8  
+  3. Click the Green Button to download.
+  4. (cd /usr/local; xzcat ~/Downloads/Unity2018.2.8f1.tar.xz | tar -xvf - )
+  5. (cd ~/Desktop; ln -s /usr/local/Unity/Editor/Unity ./Unity-Editor)
+
+Wine Applications;
+The following application are Windows application supplied in the OPCD Downloads
+Arborist
+GreenKeeper
+GSPro Launcher
+GSPro
+And if requested GSPro, GSPro Laucher
+
+*** WINBOAT application
+Nearly everything in the OPCD workflow can be done in linux and the big workload tools like QGIS, Inkscape and Blender all work well natively.
+All of the Unity Baseprojects (GSP tab) work with Linux Native Unity except one.  That is the 'GSP > Build Course' option which currently is
+a Windows only release from the OPCD tool builder folks.  Of all the GSP tab tool only the 'Build Course' fails under Linux and that has to do with
+an encryption.cs class only compiled to a binary only .dll for windows.  So here is the workaround;
+
+WINBOAT is a great Windows tool running Windows in a docker container with a nice and easy to use GUI.  It has it's own seperate disk, preallocated
+to hold Windows and your app.  I've found about 200-250G is needed for a good system.   It installs a version of non-actived version of Windows 11 for
+virtual machines (free to use as I understand).
+
+# So First we need dockers installed. 
+sudo apt update
+sudo apt install docker.io docker-compose-v2 freerdp3-x11
+sudo usermod -aG docker $USER
+
+# You can review Winboat here, or go to the release for a deb binary ready to go.
+https://github.com/TibixDev/winboat
+https://github.com/TibixDev/winboat/releases/download/v0.9.0/winboat-0.9.0-amd64.deb
+sudo apt install ./winboat-0.9.0-amd64.deb
+
+So start up Winboat, 
+
+Adjust CPUs an memory to what you can spare. Your inital disk should be about 200-256GB.  (We are not going to be running this long so be generous). If you can spare it, I would give it 6-8 CPUs, and 24 - 32GB RAM to help.   Press the start button and when running in the Winboat Apps > select the 'Windows Desltop' tab.  This will launch a full windows desktop. Install Unity-2018.2.8f1.exe from OPCD downloads.    Now here is the downside with Winboat. It doesn't have access to your GPU.  So be prepaired for a sluggish CPU bound Unity.  Now we need the base project for Unity to loaded;
+Open Filemanager and work to Network > Host.lan > Data > Projects > Your_Course > Unity and copy/paste the Full Project/Course_name/Unity folder to your
+Windows desktop.  Click the Unity Icon, Click Open, and select Desktop > Unity when it Opens it will present you with this dialog box; 
+
+"Build Yarget LinuxStandaloneSupport is not supported.  Support for target platform LinuxStandaloneSupport not installed.  Switch to WindowsStandaloneSupport or exit Unity (Y/N)"  select yes.
+
+When you select yes, it will convert all the LinuxStandaloneSupport binaries to WindowsStandaloneSupport Binaries and at this point, Unity OPCD tools that
+create the GSP tab, will recompile the Build Course (and include a special windows only .dll that will encrypt the course into a .gspcrse.
+After about 2-4min and the convertion from LinuxStandaloneSupport to WindowsStandaloneSupport is complete, your course should appear
+(rendered with the CPU).  OK, so now go to the GSP > Build Course.  Pick you destination folder Unity/GSP and Scene file (Assets > Scenes), then the
+[Build Course] button. 2-5 min later, you will have a Unity/GPS/Course_name.gspcrse.   Using Filemanager copy the Unity/GSP back to Network > Host.lan > Data > Projects > Course_name > Unity to create the GSP folder with the Course_name.gspcrse contents.  This is you encrypted GSPro Course file.  Once copied back
+to the Linux side, we can shut down windows and continue in Linux.
+
+
+*** GSPro install
+If you building a course, you can request for GSP Support for a copy of the 'Keyboard' version of GSPro.  The will send you a Download link and code.
+GSProInstallerV3.zip unzip to where-ever and run 'wine setup.exe' and follow the prompts.  Then on Discord, goto GSP Integration > # gsp-mouse-control
+to learn how to use keyboard and mouse control.
+
+

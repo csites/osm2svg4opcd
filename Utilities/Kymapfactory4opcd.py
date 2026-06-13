@@ -10,6 +10,8 @@ EXAMPLE: ./Kymapfactory4opcd.py -lat 38.17345 -lon -85.56277 --ky_dem --ky_ortho
 
 ./Kymapfactory4opcd.py -lat 38.260466 -lon -85.678923 --output_folder ~/Projects/Crescent_Hill --auto_center --ky_dem --ky_ortho --google_sat --bing_sat --download_osm
 
+Kymapfactory4opcd.py -lat "38.2155513" -lon "-85.3602120" --output_folder ~/Projects/UofL_Golf_Club --download_osm 
+
 """
 import os
 import sys
@@ -288,14 +290,14 @@ class ImageryService:
 
         # 6. Warp to final PNG (clips to exact bbox)
         temp_clipped = os.path.join(local_cache_dir, "clipped_temp.tif")
-        
-        c_xmin, c_ymin = latlon_to_meters(bbox[0], bbox[1])
-        c_xmax, c_ymax = latlon_to_meters(bbox[2], bbox[3])
+        b_minlat, b_minlon, b_maxlat, b_maxlon = bbox
+        m_left, m_bottom = latlon_to_meters(b_minlat, b_minlon)
+        m_right, m_top = latlon_to_meters(b_maxlat, b_maxlon)
         gdal.Warp(temp_clipped, temp_raw, options=gdal.WarpOptions(
-            format="GTiff", 
-            srcSRS="EPSG:3857", 
+            format="GTiff",  
+            srcSRS="EPSG:3857",  
             dstSRS="EPSG:3857",
-            outputBounds=[c_xmin, c_ymin, c_xmax, c_ymax],
+            outputBounds=[m_left, m_bottom, m_right, m_top], # Standardized order
             resampleAlg=gdal.GRA_Bilinear
         ))
         gdal.Translate(output_path, temp_clipped, options=gdal.TranslateOptions(
@@ -499,7 +501,7 @@ class TerrainService:
             format="PNG",
             outputType=gdal.GDT_UInt16,
             scaleParams=[[min_z, max_z, 0, 65535]],
-            dstnodata=0
+            noData=0
         )
         gdal.Translate(output_path, input_tif, options=translate_options)
 
@@ -1070,7 +1072,8 @@ class OSMService:
 
 # Constants for Seneca / KY Elevation
 KY_Z_SCALE = 0.3048  # Feet to Meters
-SATELLITE_ZOOM = 16
+SATELLITE_ZOOM = 18  # For Google and Bing Satallite image (Higher = more detail, larger files).
+
 
 def main():
     parser = argparse.ArgumentParser(description="Kymapfactory4opcd: A Kentucky specific High-fidelity asset generator for OPCD")
@@ -1305,7 +1308,7 @@ def main():
     osm_file = os.path.join(args.output_folder, "inner_map.osm")
 
     # 2. Check for existence and force flag
-    if os.path.exists(osm_file) and not args.force_osm:
+    if os.path.exists(osm_file) and not (args.force_osm or args.download_osm):
         print(f"--> {GREEN}[INFO]{RESET} Existing OSM data found. Skipping Overpass query.")
     else:
         # Only download if the user actually requested OSM OR if we are forcing a refresh
@@ -1380,7 +1383,7 @@ def main():
         else:
             print(f"[Skipping] {os.path.join(imagery_dir, "inner_google.png")} exist")
         if not os.path.exists(os.path.join(imagery_dir, "outer_google.png")):
-            google_service.fetch_and_stitch(outer_bbox, zoom=SATELLITE_ZOOM-3, output_path=os.path.join(imagery_dir, "outer_google.png"))
+            google_service.fetch_and_stitch(outer_bbox, zoom=SATELLITE_ZOOM, output_path=os.path.join(imagery_dir, "outer_google.png"))
         else:
             print(f"[Skipping] {os.path.join(imagery_dir, "outer_google.png")} exist")
         
@@ -1392,7 +1395,7 @@ def main():
         else:
             print(f"[Skipping] {os.path.join(imagery_dir, "inner_bing.png")} exist");
         if not os.path.exists(os.path.join(imagery_dir, "outer_bing.png")):
-            bing_service.fetch_and_stitch(outer_bbox, zoom=SATELLITE_ZOOM-3, output_path=os.path.join(imagery_dir, "outer_bing.png"))
+            bing_service.fetch_and_stitch(outer_bbox, zoom=SATELLITE_ZOOM, output_path=os.path.join(imagery_dir, "outer_bing.png"))
         else:
             print(f"[Skipping] {os.path.join(imagery_dir, "outer_bing.png")} exist");
   
@@ -1474,14 +1477,22 @@ def main():
     #--- SVG WORKFLOW BLOCK ---
     if args.osm_to_svg:
         print("--> Executing osm2svg_v9.py...")
-        subprocess.run(["python3", OSM2SVG_EXE, "--infile", os.path.join(outpath, "inner_map.osm"), "--outfile", os.path.join(outpath, "inner_out.svg")], check=True)
+        script_path = os.path.expanduser("~/OPCD/OSM/osm2svg_v9.py")
+        subprocess.run([
+            "python3", script_path,
+            "--infile", os.path.join(pfs.paths["osm"], "inner_map.osm"),
+            "--outfile", os.path.join(pfs.paths["inkscape"], "inner_out.svg")
+        ], check=True)
 
     if args.svg_water_edge:
         print("--> Adjusting SVG water edges...")
-        subprocess.run(["python3", "svg_water_edge.py", "--file", os.path.join(outpath, "inner_out.svg")], check=True)
+        script_path = os.path.expanduser("~/OPCD/OSM/svg_water_edge.py")
+        subprocess.run([
+            "python3", script_path,
+            "--file", os.path.join(pfs.paths["inkscape"], "inner_out.svg")
+        ], check=True)
 
     print(f"\n{GREEN}>>> Kymapfactory4opcd tasks finished.{RESET}")
-    
     
 if __name__ == "__main__":
     main()

@@ -113,6 +113,12 @@ def parse_arguments():
     # Note: These use action='append' to allow multiple, or you can use type=str and split later.
     # Given your request, a simple string for each is fine for now.
     parser.add_argument(
+        '--inner_size',
+        type=float,
+        default=2000.0,
+        help='Inner square size for background course inclusion in (meters)'
+    )
+    parser.add_argument(
         '--background1', 
         type=str, 
         default=None, 
@@ -138,6 +144,12 @@ def parse_arguments():
     )
 
     # Add outer_background images.  The are the OPCD Outer images"
+    parser.add_argument(
+        '--outer_size',
+        type=float,
+        default=4000.0,
+        help='Outer square size for outer_background far projection in (meters)'
+    )
     parser.add_argument(
         '--outer_background1', 
         type=str, 
@@ -188,7 +200,7 @@ def calculate_and_set_projection(min_lat, max_lat, min_lon, max_lon):
     # 2. Calculate meter-per-degree factors
     METERS_PER_DEGREE_LON_FACTOR = METERS_PER_DEGREE_LAT * math.cos(avg_lat_rad)
     METERS_PER_DEGREE_LAT_FACTOR = METERS_PER_DEGREE_LAT 
-
+    
     # 3. Calculate Real-World Dimensions in Meters
     lon_range_deg = max_lon - min_lon
     lat_range_deg = max_lat - min_lat
@@ -1363,7 +1375,7 @@ def write_svg_file(header, background_elements, foreground_elements, filename):
 # --- SVG File Output FUNCTIONS F2. generate_background_svg_elements(background_files, ...) ---
 # ---------------------------------------------------------------------------------------------
 def generate_background_svg_elements(background_files, outer_background_files, svg_width, svg_height,  
-                                     inner_mwxh, outer_mwxh,
+                                     inner_size, outer_size,
                                      MAP_MIN_X, MAP_MAX_Y, REAL_TO_SVG_SCALE,
                                      MIN_LAT, MAX_LAT, MIN_LON, MAX_LON,  
                                      METERS_PER_DEGREE_LON_FACTOR, METERS_PER_DEGREE_LAT_FACTOR,
@@ -1378,8 +1390,8 @@ def generate_background_svg_elements(background_files, outer_background_files, s
     dst_crs = 'EPSG:4326'
     
     # 1. Calculate the negative space offset for the outer layer images
-    inner_w = float(inner_mwxh)   # e.g., 2000.0
-    outer_w = float(outer_mwxh)   # e.g., 4000.0
+    inner_w = float(inner_size)   # e.g., 2000.0
+    outer_w = float(outer_size)   # e.g., 4000.0
     bg_offset = (inner_w - outer_w) / 2.0  # yields -1000.0 for standard setup
 
     # --- LOOP A: PROCESS STANDARD INNER BACKGROUND IMAGES ---
@@ -1393,7 +1405,12 @@ def generate_background_svg_elements(background_files, outer_background_files, s
                 temp_filename = filename.replace(".tif", "_aligned.png")
                 out_width = int(inner_w)  
                 out_height = int(out_width * (svg_height / svg_width))
-                
+
+                lat_min = OUTER_MIN_LAT if OUTER_MIN_LAT is not None else MIN_LAT
+                lat_max = OUTER_MAX_LAT if OUTER_MAX_LAT is not None else MAX_LAT
+                lon_min = OUTER_MIN_LON if OUTER_MIN_LON is not None else MIN_LON
+                lon_max = OUTER_MAX_LON if OUTER_MAX_LON is not None else MAX_LON
+
                 dst_transform = rasterio.transform.from_bounds(
                     MIN_LON, MIN_LAT, MAX_LON, MAX_LAT, out_width, out_height
                 )
@@ -1473,6 +1490,8 @@ def generate_background_svg_elements(background_files, outer_background_files, s
                     f'preserveAspectRatio="none" opacity="0.5" inkscape:label="{clean_id}" />'
                 )
                 print(f"Successfully aligned Outer Plate: {temp_filename} as ID: {clean_id}")
+            print(f"DEBUG CBS: Processing {clean_id}")
+            print(f"DEBUG CBS: Bounds used: {lon_min}, {lat_min} to {lon_max}, {lat_max}")
         except Exception as e:
             print(f"Error processing outer background {filename}: {e}")
 
@@ -2124,7 +2143,7 @@ def main():
         args.background4
     ]
     
-    background_files = [
+    outer_background_files = [
         args.outer_background1,
         args.outer_background2,
         args.outer_background3,
@@ -2195,7 +2214,26 @@ def main():
     b = boundsElems[0]
     minlat, maxlat = float(b.get('minlat')), float(b.get('maxlat'))
     minlon, maxlon = float(b.get('minlon')), float(b.get('maxlon'))
-        
+
+    
+    # =====================================================================
+    # NEW: Calculate 4000m Outer Bounds centered on the OSM bounds
+    # =====================================================================
+    avg_lat = (minlat + maxlat) / 2.0
+    METERS_PER_DEGREE_LAT_FACTOR = 111320.0 # Get Earthly
+    METERS_PER_DEGREE_LON_FACTOR = 111320.0 * math.cos(math.radians(avg_lat))
+    
+    SIZE_RATIO = float(args.outer_size) / float(args.inner_size)
+    outer_radius_m = float(args.outer_size) / 2.0
+    outer_lat_deg = outer_radius_m / METERS_PER_DEGREE_LAT_FACTOR
+    outer_lon_deg = outer_radius_m / METERS_PER_DEGREE_LON_FACTOR
+    center_lat = (minlat + maxlat) / 2.0
+    center_lon = (minlon + maxlon) / 2.0
+    outer_minlat = center_lat - outer_lat_deg
+    outer_maxlat = center_lat + outer_lat_deg
+    outer_minlon = center_lon - outer_lon_deg
+    outer_maxlon = center_lon + outer_lon_deg
+    
     svg_header, map_width_m, map_height_m, REAL_TO_SVG_SCALE = generate_svg_header_from_bounds(minlat, maxlat, minlon, maxlon)
         
     # Define the bounding box for clipping (using calculated SVG size - SAFETY_INSET_MM) 
@@ -2377,8 +2415,8 @@ def main():
         outer_background_files=outer_background_files, 
         svg_width=SVG_WIDTH_MM, 
         svg_height=SVG_HEIGHT_MM,
-        inner_mwxh=args.inner_mwxh,                   
-        outer_mwxh=args.outer_mwxh,                   
+        inner_size=args.inner_size,                   
+        outer_size=args.outer_size,                   
         MAP_MIN_X=MAP_MIN_X, 
         MAP_MAX_Y=MAP_MAX_Y, 
         REAL_TO_SVG_SCALE=REAL_TO_SVG_SCALE,
@@ -2386,8 +2424,13 @@ def main():
         MAX_LAT=maxlat, 
         MIN_LON=minlon, 
         MAX_LON=maxlon,   
-        METERS_PER_DEGREE_LON_FACTOR=METERS_PER_DEGREE_LON,
-        METERS_PER_DEGREE_LAT_FACTOR=METERS_PER_DEGREE_LAT
+        METERS_PER_DEGREE_LON_FACTOR=METERS_PER_DEGREE_LON_FACTOR,
+        METERS_PER_DEGREE_LAT_FACTOR=METERS_PER_DEGREE_LAT_FACTOR,
+        OUTER_MIN_LAT=outer_minlat, 
+        OUTER_MAX_LAT=outer_maxlat,
+        OUTER_MIN_LON=outer_minlon,
+        OUTER_MAX_LON=outer_maxlon
+
     )
     
     background_svg_elements.reverse()

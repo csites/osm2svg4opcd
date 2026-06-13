@@ -12,6 +12,48 @@
     <P><B>crs_transform.py</B> takes a geotiff image (DEM) image and does the same report giving you corrdinates matching OpenStreetMaps. </p>
     <P><B>Download_MapOSM.py</B>does all of the above and optionally downloads a version of map.osm from http://overpass-api.de/ based on the coordinates of the laz/las or geotif DEM image elevation plate(s).  It uses the styles.json sheet to search and identify objects for the Overpass API to include in the map.osm output, comparible to the one from OpenStreetMaps.  So from your initial DEM/LAZ plate(s), it will fetch map.osm matching the coordinates and line everything up for conversion to an SVG and overlay or underlay, the elevation maps, Hillshade etc and they should all line up.  One example is included of a downloaded map.osm and out.svg from osm2svg_v4.py are included here.  Note you do need to specify the styles.json; './Download_MapOSM.py -h' to get these features from Overpass.  
     <P><B>OPCDMapfactory.py</B> If you live in Kentucky (or not), Of all the program you will want to use, this one does it all.  You give it the center of the golf course and it creates a 2km x 2km inner and a 4km x 4km outer acround that location, locates the DEM tiles, downloades those, build a heightmap, and hillshade image that can be imported with the osm2svg4opcd/osm2svg_v9.py.   It will download the latest map.osm from the Overpass_API.  In KY, it will also download the phase3 6in Orthographic images tiles, that have much higher reslution then bing or google sat images.  But it will download them as well.   If you have everything download but need to regenerate the terrain.obj or the hillshade, or the heightmap, or images from the Ky_ortho tiles, it will do that as well.  It also creates and arranges you Project Directory just as you would find in the OPCD none-to-done series.  Just type Python3 OPCDMapfactory.py --help to see all of the command line options.      
+     <P><B>Kymapfactory4opcd.py</b> This is the refined and finished version of the OPCDMapfactory.py above.  This is a one stop does it all program for initializing an OPCD course build project.   Here is an example help;
+     <pre>
+  ================
+
+     usage: Kymapfactory4opcd.py [-h] -lat LAT -lon LON [--inner_size INNER_SIZE] [--outer_size OUTER_SIZE] [--style STYLE] [--output_folder OUTPUT_FOLDER]
+                            [--auto_center] [--ky_dem] [--ky_ortho] [--google_sat] [--bing_sat] [--download_osm] [--force_dem] [--force_ortho]
+                            [--force_google] [--force_bing] [--force_osm] [--osm_to_svg] [--svg_water_edge] [--rebuild_ortho] [--rebuild_obj]
+                            [--rebuild_hillshade] [--rebuild_heightmap]
+
+Kymapfactory4opcd: A Kentucky specific High-fidelity asset generator for OPCD
+
+options:
+  -h, --help            show this help message and exit
+  -lat LAT              Center latitude
+  -lon LON              Center longitude
+  --inner_size INNER_SIZE
+                        Inner size (meters)
+  --outer_size OUTER_SIZE
+                        Outer size (meters)
+  --style, -s STYLE     Styles for OSM
+  --output_folder, -o OUTPUT_FOLDER
+                        Project output folder
+  --auto_center         Center project on OSM boundary creates ~/output_folder/etc/course_center.txt containing tattitude, longitude
+  --ky_dem              Harvest-or-Redownload raw LiDAR from KyFromAbove
+  --ky_ortho            Harvest-or-Redownload high-res KY Ortho imagery
+  --google_sat          Harvest-n-Build inner and outer_google.png
+  --bing_sat            Harves-n-/Build inner and outer_bing.png
+  --download_osm        Harvest inner_map.osm from Overpass API (OpenStreetmap query)
+  --force_dem           Force re-download of LiDAR/DEM (Digital Elevation Maps) tiles
+  --force_ortho         Force re-download of Ortho tiles (Overhead Arial Imagery)
+  --force_google        Force re-download of Google tiles
+  --force_bing          Force re-download of Bing tiles
+  --force_osm           Force re-download of OSM data
+  --osm_to_svg          Process inner_map.osm into inner_out.svg (runs osm2svg4opcd/osm2svg_v9)
+  --svg_water_edge      Adjust svg water feature edges (experimental tool to refine water shore lines in the svg)
+  --rebuild_ortho       Re-process/stitch ortho imagery to inner and outer
+  --rebuild_obj         Re-generate 3D meshes (create the inner and outer terrain.obj(s) from the DEM(s) for used in Blender.
+  --rebuild_hillshade   Re-render hillshade (.png)
+  --rebuild_heightmap   Re-calculate 16-bit heightmap (.png)
+
+  ================
+     </pre>
     <footer></footer>
   </body>
 </html>
